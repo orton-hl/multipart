@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pushing files from S3 to on-prem servers using AWS Transfer Family</title>
+<style>
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f7f6f3;
+    --bg-tertiary: #efeee9;
+    --bg-info: #e6f1fb;
+    --bg-warn: #faeeda;
+    --bg-danger: #fcebeb;
+    --bg-success: #eaf3de;
+    --text-primary: #1a1a1a;
+    --text-secondary: #5f5e5a;
+    --text-tertiary: #888780;
+    --text-info: #185fa5;
+    --text-warn: #854f0b;
+    --text-danger: #a32d2d;
+    --text-success: #3b6d11;
+    --border: #e0dfda;
+    --border-light: rgba(0,0,0,0.08);
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --radius: 8px;
+    --radius-lg: 12px;
+    /* diagram palette */
+    --teal-50: #e1f5ee; --teal-600: #0f6e56; --teal-800: #085041;
+    --purple-50: #eeedfe; --purple-600: #534ab7; --purple-800: #3c3489;
+    --coral-50: #faece7; --coral-600: #993c1d; --coral-800: #712b13;
+    --gray-50: #f1efe8; --gray-600: #5f5e5a; --gray-800: #444441;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-primary: #1a1a1a;
+      --bg-secondary: #2c2c2a;
+      --bg-tertiary: #222220;
+      --bg-info: #0c2d4a;
+      --bg-warn: #3a2a08;
+      --bg-danger: #3a1414;
+      --bg-success: #1a2e08;
+      --text-primary: #e8e6df;
+      --text-secondary: #b4b2a9;
+      --text-tertiary: #888780;
+      --text-info: #85b7eb;
+      --text-warn: #fac775;
+      --text-danger: #f09595;
+      --text-success: #c0dd97;
+      --border: #444441;
+      --border-light: rgba(255,255,255,0.08);
+      --teal-50: #085041; --teal-600: #5dcaa5; --teal-800: #9fe1cb;
+      --purple-50: #3c3489; --purple-600: #afa9ec; --purple-800: #cecbf6;
+      --coral-50: #712b13; --coral-600: #f0997b; --coral-800: #f5c4b3;
+      --gray-50: #444441; --gray-600: #b4b2a9; --gray-800: #d3d1c7;
+    }
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font-sans); color: var(--text-primary); background: var(--bg-primary); line-height: 1.7; }
+  .page { max-width: 820px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+  /* Breadcrumb */
+  .breadcrumb { font-size: 12px; color: var(--text-tertiary); margin-bottom: 8px; }
+  .breadcrumb span { opacity: .5; margin: 0 4px; }
+
+  /* Page header */
+  .page-header { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 32px; }
+  .page-title { font-size: 28px; font-weight: 600; line-height: 1.3; margin-bottom: 8px; }
+  .page-meta { font-size: 12px; color: var(--text-tertiary); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--bg-info); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: var(--text-info); margin-right: 4px; vertical-align: middle; }
+  .status { display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; background: var(--bg-success); color: var(--text-success); }
+
+  /* TOC */
+  .toc { background: var(--bg-secondary); border-radius: var(--radius-lg); padding: 18px 22px; margin-bottom: 32px; }
+  .toc-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px; }
+  .toc a { display: block; font-size: 13px; color: var(--text-info); text-decoration: none; padding: 3px 0; }
+  .toc a:hover { text-decoration: underline; }
+  .toc a.sub { padding-left: 16px; }
+
+  /* Headings */
+  h2 { font-size: 22px; font-weight: 600; margin: 40px 0 14px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 17px; font-weight: 600; margin: 28px 0 10px; }
+  p { margin-bottom: 14px; font-size: 15px; }
+
+  /* Panels */
+  .panel { border-radius: var(--radius); padding: 14px 18px; margin: 18px 0; font-size: 14px; line-height: 1.6; }
+  .panel-info { background: var(--bg-info); border-left: 3px solid var(--text-info); }
+  .panel-warn { background: var(--bg-warn); border-left: 3px solid var(--text-warn); }
+  .panel-danger { background: var(--bg-danger); border-left: 3px solid var(--text-danger); }
+  .panel-success { background: var(--bg-success); border-left: 3px solid var(--text-success); }
+  .panel strong { font-weight: 600; }
+  .panel-label { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  .panel-info .panel-label { color: var(--text-info); }
+  .panel-warn .panel-label { color: var(--text-warn); }
+  .panel-danger .panel-label { color: var(--text-danger); }
+  .panel-success .panel-label { color: var(--text-success); }
+
+  /* Code */
+  pre { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; margin: 12px 0 18px; color: var(--text-primary); }
+  code { font-family: var(--font-mono); font-size: 13px; background: var(--bg-secondary); padding: 1px 5px; border-radius: 4px; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 22px; font-size: 14px; }
+  th { text-align: left; background: var(--bg-secondary); font-weight: 600; padding: 10px 14px; border: 1px solid var(--border); }
+  td { padding: 10px 14px; border: 1px solid var(--border); vertical-align: top; }
+
+  /* Expand/collapse */
+  details { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); }
+  summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: 14px; background: var(--bg-secondary); user-select: none; border-radius: var(--radius); }
+  details[open] summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+  details > div { padding: 14px; font-size: 14px; }
+
+  /* Steps */
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 38px; margin-bottom: 16px; font-size: 15px; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: 1px; width: 26px; height: 26px; background: var(--bg-info); color: var(--text-info); border-radius: 50%; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+
+  /* Check list */
+  ul.check { list-style: none; padding: 0; }
+  ul.check li { padding: 4px 0 4px 26px; position: relative; font-size: 14px; }
+  ul.check li::before { content: "\2713"; position: absolute; left: 2px; color: var(--text-success); font-weight: 600; }
+
+  /* Diagram containers */
+  .diagram-container { margin: 24px 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .diagram-header { background: var(--bg-secondary); padding: 10px 18px; font-size: 13px; font-weight: 600; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
+  .diagram-body { padding: 24px 16px; overflow-x: auto; }
+  .diagram-body svg { display: block; margin: 0 auto; }
+
+  /* SVG diagram colors */
+  .d-teal-fill { fill: var(--teal-50); }
+  .d-teal-stroke { stroke: var(--teal-600); }
+  .d-teal-text { fill: var(--teal-800); }
+  .d-purple-fill { fill: var(--purple-50); }
+  .d-purple-stroke { stroke: var(--purple-600); }
+  .d-purple-text { fill: var(--purple-800); }
+  .d-coral-fill { fill: var(--coral-50); }
+  .d-coral-stroke { stroke: var(--coral-600); }
+  .d-coral-text { fill: var(--coral-800); }
+  .d-gray-fill { fill: var(--gray-50); }
+  .d-gray-stroke { stroke: var(--gray-600); }
+  .d-gray-text { fill: var(--gray-800); }
+
+  .d-label { font-family: var(--font-sans); font-size: 14px; font-weight: 600; }
+  .d-sub { font-family: var(--font-sans); font-size: 12px; font-weight: 400; }
+  .d-arr { stroke: var(--text-tertiary); stroke-width: 1; fill: none; }
+  .d-arr-label { font-family: var(--font-sans); font-size: 11px; fill: var(--text-secondary); }
+  .d-lifeline { stroke: var(--border); stroke-width: 0.5; stroke-dasharray: 4 3; }
+  .d-msg-req { stroke: var(--text-info); stroke-width: 0.5; }
+  .d-msg-resp { stroke: var(--text-success); stroke-width: 0.5; stroke-dasharray: 4 2; }
+  .d-msg-err { stroke: var(--text-danger); stroke-width: 0.5; stroke-dasharray: 4 2; }
+  .d-act-bar { fill: var(--bg-info); rx: 2; }
+  .d-note-bg { fill: var(--bg-secondary); stroke: var(--border); stroke-width: 0.5; }
+  .d-note-err-bg { fill: var(--bg-danger); }
+  .d-note-warn-bg { fill: var(--bg-warn); }
+  .d-text-err { fill: var(--text-danger); }
+
+  @media print {
+    .page { max-width: 100%; padding: 1rem; }
+    .diagram-container { break-inside: avoid; }
+    .toc a { color: var(--text-primary); }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="breadcrumb">Engineering <span>&rsaquo;</span> Cloud Infrastructure <span>&rsaquo;</span> Data Transfer</div>
+
+  <div class="page-header">
+    <div class="page-title">Pushing files from S3 to on-prem servers using AWS Transfer Family</div>
+    <div class="page-meta">
+      <span><span class="avatar">CL</span> Cloud Infrastructure Team</span>
+      <span>Last updated: 02 Apr 2026</span>
+      <span class="status">Published</span>
+    </div>
+  </div>
+
+  <div class="toc">
+    <div class="toc-title">On this page</div>
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture &amp; data flow</a>
+    <a class="sub" href="#arch-diagram">Architecture diagram</a>
+    <a class="sub" href="#seq-diagram">Sequence interaction diagram</a>
+    <a href="#s3-events">S3 event notifications &amp; EventBridge</a>
+    <a href="#transfer-family">AWS Transfer Family configuration</a>
+    <a href="#security">Security &amp; access control</a>
+    <a href="#encryption">Encryption (in-transit &amp; at-rest)</a>
+    <a href="#logging">Logging, monitoring &amp; alerting</a>
+    <a href="#failure">Error handling &amp; retry strategy</a>
+    <a href="#prereqs">Prerequisites &amp; setup checklist</a>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- OVERVIEW -->
+  <!-- ============================================================ -->
+  <h2 id="overview">Overview</h2>
+  <p>This page documents the pattern for automatically pushing newly uploaded files from an Amazon S3 bucket to an on-premises (on-prem) SFTP or FTPS server. The integration is event-driven: when an object lands in S3, an event triggers a workflow that uses <strong>AWS Transfer Family</strong> connectors to deliver the file to the on-prem endpoint over a secure channel.</p>
+
+  <div class="panel panel-info">
+    <div class="panel-label">Key components</div>
+    <strong>Amazon S3</strong> &mdash; source bucket where files are uploaded.<br>
+    <strong>S3 Event Notifications / Amazon EventBridge</strong> &mdash; captures <code>PutObject</code> events and routes them.<br>
+    <strong>AWS Lambda</strong> &mdash; orchestration function that calls the Transfer Family connector.<br>
+    <strong>AWS Transfer Family (SFTP connector)</strong> &mdash; managed connector that pushes the file to the on-prem server via SFTP/FTPS.<br>
+    <strong>On-prem SFTP server</strong> &mdash; destination endpoint accessible over AWS Direct Connect or Site-to-Site VPN.
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- ARCHITECTURE -->
+  <!-- ============================================================ -->
+  <h2 id="architecture">Architecture &amp; data flow</h2>
+  <p>The end-to-end flow is fully event-driven with no polling or scheduled jobs. A file landing in S3 triggers delivery within seconds.</p>
+
+  <ol class="steps">
+    <li>An upstream application or ETL pipeline uploads a file to the designated S3 bucket (prefix: <code>/outbound/</code>).</li>
+    <li>S3 emits a <code>s3:ObjectCreated:*</code> event. This is routed either directly via <strong>S3 Event Notifications</strong> to a Lambda function, or via <strong>Amazon EventBridge</strong> for richer filtering and fan-out.</li>
+    <li>The Lambda function receives the event payload (bucket, key, size, etag), validates the file against business rules (naming convention, size limits), and invokes the <strong>AWS Transfer Family <code>StartFileTransfer</code></strong> API.</li>
+    <li>Transfer Family&rsquo;s SFTP connector pulls the file from S3 and pushes it to the on-prem server over <strong>SFTP/FTPS</strong>, traversing a <strong>Direct Connect</strong> or <strong>Site-to-Site VPN</strong> link.</li>
+    <li>On success, the Lambda moves the S3 object to an <code>/archive/</code> prefix. On failure, it moves it to <code>/failed/</code> and publishes an SNS alert.</li>
+  </ol>
+
+  <div class="panel panel-warn">
+    <div class="panel-label">Important</div>
+    The Transfer Family SFTP connector initiates an <em>outbound</em> connection to the on-prem server. The on-prem firewall must allow inbound SFTP (port 22) or FTPS (port 990/21) from the NAT gateway or VPC endpoint IP range used by the connector.
+  </div>
+
+  <!-- ARCHITECTURE DIAGRAM -->
+  <h3 id="arch-diagram">Architecture diagram</h3>
+  <div class="diagram-container">
+    <div class="diagram-header">Fig 1 &mdash; High-level architecture: S3 to on-prem via Transfer Family</div>
+    <div class="diagram-body">
+      <svg width="100%" viewBox="0 0 720 530" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+
+        <!-- AWS cloud container -->
+        <rect class="d-teal-fill d-teal-stroke" x="30" y="20" width="460" height="490" rx="20" stroke-width="0.5"/>
+        <text class="d-label d-teal-text" x="260" y="50" text-anchor="middle">AWS cloud</text>
+
+        <!-- On-prem container -->
+        <rect class="d-gray-fill d-gray-stroke" x="540" y="20" width="150" height="490" rx="20" stroke-width="0.5"/>
+        <text class="d-label d-gray-text" x="615" y="50" text-anchor="middle">On-prem</text>
+
+        <!-- S3 bucket -->
+        <rect class="d-teal-fill d-teal-stroke" x="70" y="80" width="170" height="56" rx="8" stroke-width="0.5"/>
+        <text class="d-label d-teal-text" x="155" y="102" text-anchor="middle">S3 bucket</text>
+        <text class="d-sub d-teal-text" x="155" y="120" text-anchor="middle" opacity=".7">/outbound/ prefix</text>
+
+        <!-- EventBridge -->
+        <rect class="d-purple-fill d-purple-stroke" x="70" y="196" width="170" height="56" rx="8" stroke-width="0.5"/>
+        <text class="d-label d-purple-text" x="155" y="218" text-anchor="middle">EventBridge</text>
+        <text class="d-sub d-purple-text" x="155" y="236" text-anchor="middle" opacity=".7">Object created rule</text>
+
+        <!-- Lambda -->
+        <rect class="d-purple-fill d-purple-stroke" x="70" y="312" width="170" height="56" rx="8" stroke-width="0.5"/>
+        <text class="d-label d-purple-text" x="155" y="334" text-anchor="middle">Lambda</text>
+        <text class="d-sub d-purple-text" x="155" y="352" text-anchor="middle" opacity=".7">Orchestration</text>
+
+        <!-- Transfer Family -->
+        <rect class="d-teal-fill d-teal-stroke" x="70" y="428" width="170" height="56" rx="8" stroke-width="0.5"/>
+        <text class="d-label d-teal-text" x="155" y="450" text-anchor="middle">Transfer Family</text>
+        <text class="d-sub d-teal-text" x="155" y="468" text-anchor="middle" opacity=".7">SFTP connector</text>
+
+        <!-- Secrets Manager -->
+        <rect class="d-coral-fill d-coral-stroke" x="300" y="398" width="160" height="44" rx="8" stroke-width="0.5"/>
+        <text class="d-label d-coral-text" x="380" y="424" text-anchor="middle">Secrets Manager</text>
+
+        <!-- KMS -->
+        <rect class="d-coral-fill d-coral-stroke" x="300" y="80" width="160" height="44" rx="8" stroke-width="0.5"/>
+        <text class="d-label d-coral-text" x="380" y="106" text-anchor="middle">KMS</text>
+
+        <!-- CloudWatch -->
+        <rect class="d-coral-fill d-coral-stroke" x="300" y="196" width="160" height="44" rx="8" stroke-width="0.5"/>
+        <text class="d-label d-coral-text" x="380" y="222" text-anchor="middle">CloudWatch</text>
+
+        <!-- SNS -->
+        <rect class="d-coral-fill d-coral-stroke" x="300" y="300" width="160" height="44" rx="8" stroke-width="0.5"/>
+        <text class="d-label d-coral-text" x="380" y="326" text-anchor="middle">SNS alerts</text>
+
+        <!-- On-prem SFTP server -->
+        <rect class="d-gray-fill d-gray-stroke" x="555" y="268" width="120" height="56" rx="8" stroke-width="0.5"/>
+        <text class="d-label d-gray-text" x="615" y="290" text-anchor="middle">SFTP server</text>
+        <text class="d-sub d-gray-text" x="615" y="308" text-anchor="middle" opacity=".7">Port 22</text>
+
+        <!-- Direct Connect -->
+        <rect x="555" y="176" width="120" height="44" rx="8" fill="none" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4 3"/>
+        <text class="d-sub" fill="var(--text-secondary)" x="615" y="194" text-anchor="middle">Direct Connect</text>
+        <text class="d-sub" fill="var(--text-secondary)" x="615" y="210" text-anchor="middle">/ VPN</text>
+
+        <!-- Main flow arrows -->
+        <text class="d-arr-label" x="205" y="158">s3:ObjectCreated</text>
+        <line x1="155" y1="136" x2="155" y2="188" class="d-arr" marker-end="url(#a1)"/>
+
+        <text class="d-arr-label" x="205" y="276">Invoke</text>
+        <line x1="155" y1="252" x2="155" y2="304" class="d-arr" marker-end="url(#a1)"/>
+
+        <text class="d-arr-label" x="178" y="392">StartFileTransfer</text>
+        <line x1="155" y1="368" x2="155" y2="420" class="d-arr" marker-end="url(#a1)"/>
+
+        <!-- Transfer Family → on-prem (L-shaped) -->
+        <path d="M240 456 L510 456 L510 296 L547 296" fill="none" class="d-arr" marker-end="url(#a1)"/>
+        <text class="d-arr-label" x="512" y="380">SFTP / TLS</text>
+
+        <!-- Lambda → SNS -->
+        <line x1="240" y1="326" x2="292" y2="326" class="d-arr" marker-end="url(#a1)"/>
+
+        <!-- Lambda → CloudWatch -->
+        <path d="M240 334 L265 334 L265 218 L292 218" fill="none" class="d-arr" marker-end="url(#a1)"/>
+
+        <!-- Transfer Family → Secrets Manager -->
+        <path d="M240 450 L265 450 L265 420 L292 420" fill="none" class="d-arr" marker-end="url(#a1)"/>
+
+        <!-- S3 → KMS -->
+        <line x1="240" y1="102" x2="292" y2="102" class="d-arr" marker-end="url(#a1)"/>
+        <text class="d-arr-label" x="250" y="94">SSE-KMS</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- SEQUENCE DIAGRAM -->
+  <h3 id="seq-diagram">Sequence interaction diagram</h3>
+  <p>The diagram below traces a single file transfer from upload to archival (happy path), plus the alternate failure path with retry and alerting.</p>
+
+  <div class="diagram-container">
+    <div class="diagram-header">Fig 2 &mdash; Sequence: file transfer lifecycle (happy path + failure)</div>
+    <div class="diagram-body">
+      <svg width="100%" viewBox="0 0 720 920" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+
+        <!-- Participant headers -->
+        <rect class="d-teal-fill d-teal-stroke" x="30" y="10" width="90" height="36" rx="6" stroke-width="0.5"/>
+        <text class="d-label d-teal-text" x="75" y="32" text-anchor="middle">S3</text>
+
+        <rect class="d-purple-fill d-purple-stroke" x="170" y="10" width="110" height="36" rx="6" stroke-width="0.5"/>
+        <text class="d-label d-purple-text" x="225" y="32" text-anchor="middle">EventBridge</text>
+
+        <rect class="d-purple-fill d-purple-stroke" x="330" y="10" width="90" height="36" rx="6" stroke-width="0.5"/>
+        <text class="d-label d-purple-text" x="375" y="32" text-anchor="middle">Lambda</text>
+
+        <rect class="d-teal-fill d-teal-stroke" x="470" y="10" width="100" height="36" rx="6" stroke-width="0.5"/>
+        <text class="d-label d-teal-text" x="520" y="32" text-anchor="middle">Transfer Fam.</text>
+
+        <rect class="d-gray-fill d-gray-stroke" x="620" y="10" width="70" height="36" rx="6" stroke-width="0.5"/>
+        <text class="d-label d-gray-text" x="655" y="32" text-anchor="middle">On-prem</text>
+
+        <!-- Lifelines -->
+        <line x1="75"  y1="46" x2="75"  y2="900" class="d-lifeline"/>
+        <line x1="225" y1="46" x2="225" y2="900" class="d-lifeline"/>
+        <line x1="375" y1="46" x2="375" y2="900" class="d-lifeline"/>
+        <line x1="520" y1="46" x2="520" y2="900" class="d-lifeline"/>
+        <line x1="655" y1="46" x2="655" y2="900" class="d-lifeline"/>
+
+        <!-- Activation bars -->
+        <rect class="d-act-bar" x="71"  y="70"  width="8" height="40"/>
+        <rect class="d-act-bar" x="221" y="120" width="8" height="40"/>
+        <rect class="d-act-bar" x="371" y="170" width="8" height="460"/>
+        <rect class="d-act-bar" x="516" y="380" width="8" height="160"/>
+        <rect class="d-act-bar" x="651" y="420" width="8" height="100"/>
+
+        <!-- 1. PutObject -->
+        <text class="d-arr-label" x="78" y="80">PutObject (SSE-KMS)</text>
+
+        <!-- 2. S3 → EventBridge -->
+        <line x1="79" y1="97" x2="217" y2="132" class="d-msg-req" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="110" y="110">s3:ObjectCreated</text>
+
+        <!-- 3. EventBridge → Lambda -->
+        <line x1="229" y1="147" x2="367" y2="182" class="d-msg-req" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="256" y="160">Invoke (event payload)</text>
+
+        <!-- 4. Lambda validates -->
+        <rect class="d-note-bg" x="358" y="197" width="140" height="28" rx="4"/>
+        <text class="d-arr-label" x="428" y="215" text-anchor="middle">Validate file rules</text>
+
+        <!-- 5. Lambda logs -->
+        <rect class="d-note-bg" x="358" y="240" width="140" height="28" rx="4"/>
+        <text class="d-arr-label" x="428" y="258" text-anchor="middle">Log to CloudWatch</text>
+
+        <!-- 6. Lambda → S3: HeadObject -->
+        <line x1="371" y1="290" x2="83" y2="290" class="d-msg-req" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="140" y="283">HeadObject (dedup check)</text>
+
+        <!-- S3 response -->
+        <line x1="79" y1="310" x2="367" y2="310" class="d-msg-resp" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="140" y="327">200 OK + ETag</text>
+
+        <!-- 7. Lambda → Transfer Family -->
+        <line x1="379" y1="390" x2="512" y2="390" class="d-msg-req" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="394" y="383">StartFileTransfer</text>
+
+        <!-- 8. Transfer Family → S3 -->
+        <line x1="516" y1="410" x2="83" y2="410" class="d-msg-req" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="210" y="403">GetObject (KMS decrypt)</text>
+
+        <!-- 9. Transfer → On-prem -->
+        <line x1="524" y1="440" x2="647" y2="440" class="d-msg-req" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="548" y="433">SFTP PUT (SSH)</text>
+
+        <!-- 10. On-prem ACK -->
+        <line x1="651" y1="500" x2="524" y2="500" class="d-msg-resp" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="556" y="517">ACK</text>
+
+        <!-- 11. Transfer → Lambda status -->
+        <line x1="516" y1="540" x2="383" y2="540" class="d-msg-resp" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="405" y="557">COMPLETED</text>
+
+        <!-- 12. Lambda → S3 archive -->
+        <line x1="371" y1="580" x2="83" y2="580" class="d-msg-req" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="140" y="573">CopyObject → /archive/</text>
+
+        <line x1="79" y1="600" x2="367" y2="600" class="d-msg-resp" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="140" y="617">200 OK</text>
+
+        <line x1="371" y1="632" x2="83" y2="632" class="d-msg-req" marker-end="url(#a2)"/>
+        <text class="d-arr-label" x="140" y="647">DeleteObject /outbound/</text>
+
+        <!-- Error path -->
+        <rect class="d-note-err-bg" x="40" y="680" width="650" height="26" rx="4"/>
+        <text class="d-arr-label d-text-err" x="365" y="697" text-anchor="middle">alt: transfer failure path</text>
+
+        <!-- Error: EXCEPTION -->
+        <line x1="516" y1="730" x2="383" y2="730" class="d-msg-err" marker-end="url(#a2)"/>
+        <text class="d-arr-label d-text-err" x="405" y="747">EXCEPTION status</text>
+
+        <!-- Retry -->
+        <rect class="d-note-warn-bg" x="358" y="760" width="140" height="28" rx="4"/>
+        <text class="d-arr-label" x="428" y="778" text-anchor="middle">Retry (exp. backoff)</text>
+
+        <!-- Move to /failed/ -->
+        <line x1="371" y1="810" x2="83" y2="810" class="d-msg-err" marker-end="url(#a2)"/>
+        <text class="d-arr-label d-text-err" x="140" y="803">CopyObject → /failed/</text>
+
+        <!-- SNS alert -->
+        <rect class="d-note-err-bg" x="358" y="840" width="140" height="28" rx="4"/>
+        <text class="d-arr-label" x="428" y="858" text-anchor="middle">SNS publish alert</text>
+
+        <!-- Log error -->
+        <rect class="d-note-bg" x="358" y="880" width="140" height="14" rx="4"/>
+        <text class="d-arr-label" x="428" y="891" text-anchor="middle">Log error details</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- S3 EVENTS -->
+  <!-- ============================================================ -->
+  <h2 id="s3-events">S3 event notifications &amp; EventBridge</h2>
+  <p>You can route S3 events in two ways. Choose based on your needs:</p>
+
+  <table>
+    <tr><th>Approach</th><th>When to use</th><th>Trade-offs</th></tr>
+    <tr>
+      <td><strong>S3 Event Notifications &rarr; Lambda</strong></td>
+      <td>Simple, single-consumer pipeline. One bucket, one destination.</td>
+      <td>Fast and simple. Limited filtering (prefix/suffix only). No replay. No fan-out without extra infra.</td>
+    </tr>
+    <tr>
+      <td><strong>S3 &rarr; EventBridge &rarr; Lambda</strong></td>
+      <td>Multiple consumers, content-based routing, audit trail, replay.</td>
+      <td>Richer filtering rules (object metadata, size, tags). Built-in archive &amp; replay. Fan-out to multiple targets. Slight added latency (~1&ndash;2s).</td>
+    </tr>
+  </table>
+
+  <h3>EventBridge rule example</h3>
+  <p>Enable EventBridge notifications on the S3 bucket, then create a rule that matches new objects in the <code>/outbound/</code> prefix:</p>
+<pre>{
+  "source": ["aws.s3"],
+  "detail-type": ["Object Created"],
+  "detail": {
+    "bucket": { "name": ["my-file-bucket"] },
+    "object": {
+      "key": [{ "prefix": "outbound/" }]
+    }
+  }
+}</pre>
+  <p>The rule target is the orchestration Lambda function. EventBridge handles retry and dead-letter queuing natively.</p>
+
+  <div class="panel panel-info">
+    <div class="panel-label">Tip</div>
+    If you use EventBridge, enable the <strong>EventBridge archive</strong> on the rule. This lets you replay missed events during incident recovery without re-uploading files.
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- TRANSFER FAMILY -->
+  <!-- ============================================================ -->
+  <h2 id="transfer-family">AWS Transfer Family configuration</h2>
+  <p>AWS Transfer Family provides a managed SFTP connector that handles the outbound file push. No self-managed SFTP client libraries or EC2 instances are needed.</p>
+
+  <h3>Connector setup</h3>
+  <p>Create an SFTP connector resource pointing at the on-prem server:</p>
+<pre>{
+  "Url": "sftp://sftp.corp.example.com",
+  "AccessRole": "arn:aws:iam::123456789012:role/TransferConnectorRole",
+  "SftpConfig": {
+    "TrustedHostKeys": [
+      "ssh-ed25519 AAAAC3Nza..."
+    ],
+    "UserSecretId": "arn:aws:secretsmanager:eu-west-1:123456789012:
+                      secret:sftp-onprem-creds"
+  }
+}</pre>
+
+  <h3>Lambda invocation</h3>
+  <p>The orchestration Lambda calls <code>StartFileTransfer</code> on the connector:</p>
+<pre>import boto3
+
+transfer = boto3.client('transfer')
+
+response = transfer.start_file_transfer(
+    ConnectorId='c-0abc1234def56789',
+    SendFilePaths=['/my-file-bucket/outbound/invoice_2026.csv'],
+    RetrieveFilePaths=[]   # empty &mdash; we are pushing, not pulling
+)</pre>
+  <p>The API returns a <code>TransferId</code> that you can poll or monitor via CloudWatch for completion status.</p>
+
+  <!-- ============================================================ -->
+  <!-- SECURITY -->
+  <!-- ============================================================ -->
+  <h2 id="security">Security &amp; access control</h2>
+
+  <h3>IAM policies (least privilege)</h3>
+  <table>
+    <tr><th>Principal</th><th>Permissions</th></tr>
+    <tr>
+      <td>Lambda execution role</td>
+      <td><code>s3:GetObject</code>, <code>s3:PutObject</code> (for archiving), <code>transfer:StartFileTransfer</code>, <code>transfer:DescribeExecution</code>, <code>secretsmanager:GetSecretValue</code> (scoped to SFTP secret), <code>sns:Publish</code></td>
+    </tr>
+    <tr>
+      <td>Transfer Family connector role</td>
+      <td><code>s3:GetObject</code>, <code>s3:GetObjectVersion</code> on the source bucket &amp; prefix only. <strong>No write access.</strong></td>
+    </tr>
+  </table>
+
+  <div class="panel panel-danger">
+    <div class="panel-label">Security requirement</div>
+    Never embed SFTP credentials in Lambda code or environment variables. Store them in <strong>AWS Secrets Manager</strong> and reference the secret ARN in the connector config. Rotate credentials automatically on a 90-day schedule.
+  </div>
+
+  <h3>Network security</h3>
+  <ul class="check">
+    <li>Transfer Family connector runs inside your <strong>VPC</strong> with security groups restricting outbound to the on-prem SFTP IP and port only.</li>
+    <li>On-prem connectivity is via <strong>AWS Direct Connect</strong> (preferred) or <strong>Site-to-Site VPN</strong> &mdash; never over the public internet.</li>
+    <li>Security groups on the connector&rsquo;s ENI allow egress to port 22 (SFTP) or 990 (FTPS) on the on-prem IP only.</li>
+    <li>S3 bucket policy restricts access to the Lambda role and Transfer Family role ARNs; deny all other principals.</li>
+    <li>Enable <strong>S3 VPC endpoint</strong> (gateway type) so Transfer Family reads from S3 without traversing the internet.</li>
+  </ul>
+
+  <h3>Host key verification</h3>
+  <p>The connector config includes <code>TrustedHostKeys</code> &mdash; the on-prem server&rsquo;s SSH public key fingerprint. Transfer Family verifies the host key on every connection, preventing MITM attacks. If the on-prem server rotates its host key, update the connector config before the change to avoid transfer failures.</p>
+
+  <!-- ============================================================ -->
+  <!-- ENCRYPTION -->
+  <!-- ============================================================ -->
+  <h2 id="encryption">Encryption (in-transit &amp; at-rest)</h2>
+
+  <table>
+    <tr><th>Layer</th><th>Mechanism</th><th>Details</th></tr>
+    <tr>
+      <td>At-rest (S3)</td>
+      <td>SSE-KMS</td>
+      <td>All objects encrypted with a customer-managed KMS key. Bucket policy enforces <code>aws:kms</code> encryption on every <code>PutObject</code> request. The Transfer Family connector role has <code>kms:Decrypt</code> permission on the key.</td>
+    </tr>
+    <tr>
+      <td>In-transit (S3 &rarr; Transfer Family)</td>
+      <td>TLS 1.2+</td>
+      <td>S3 API calls over HTTPS. Enforce with bucket policy condition <code>"aws:SecureTransport": "true"</code>.</td>
+    </tr>
+    <tr>
+      <td>In-transit (Transfer Family &rarr; on-prem)</td>
+      <td>SFTP (SSH) / FTPS (TLS)</td>
+      <td>SFTP encrypts the channel with SSH. FTPS uses TLS 1.2+. Both protect data and credentials in transit over Direct Connect / VPN.</td>
+    </tr>
+    <tr>
+      <td>Secrets</td>
+      <td>Secrets Manager + KMS</td>
+      <td>SFTP credentials encrypted at rest in Secrets Manager using a separate KMS key. Access scoped to the connector role only.</td>
+    </tr>
+  </table>
+
+  <div class="panel panel-success">
+    <div class="panel-label">Best practice</div>
+    Use a <strong>dedicated KMS key</strong> for this pipeline (not the AWS-managed <code>aws/s3</code> key). This lets you audit decrypt operations in CloudTrail independently and revoke access instantly if the pipeline is compromised.
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- LOGGING -->
+  <!-- ============================================================ -->
+  <h2 id="logging">Logging, monitoring &amp; alerting</h2>
+
+  <h3>Logging sources</h3>
+  <table>
+    <tr><th>Source</th><th>What it captures</th><th>Where it goes</th></tr>
+    <tr>
+      <td>S3 server access logs</td>
+      <td>All API calls against the bucket (who uploaded what, when)</td>
+      <td>Separate logging bucket</td>
+    </tr>
+    <tr>
+      <td>CloudTrail (data events)</td>
+      <td><code>GetObject</code>, <code>PutObject</code>, KMS <code>Decrypt</code> calls &mdash; full audit trail</td>
+      <td>CloudTrail S3 bucket + CloudWatch Logs</td>
+    </tr>
+    <tr>
+      <td>Transfer Family structured logs</td>
+      <td>Connector execution status, bytes transferred, duration, errors, remote server response codes</td>
+      <td>CloudWatch Logs (<code>/aws/transfer/</code> log group)</td>
+    </tr>
+    <tr>
+      <td>Lambda function logs</td>
+      <td>Orchestration logic, validation results, StartFileTransfer calls, error traces</td>
+      <td>CloudWatch Logs (<code>/aws/lambda/</code> log group)</td>
+    </tr>
+    <tr>
+      <td>EventBridge</td>
+      <td>Rule invocation metrics, DLQ entries for failed deliveries</td>
+      <td>CloudWatch Metrics + DLQ (SQS)</td>
+    </tr>
+  </table>
+
+  <h3>CloudWatch alarms</h3>
+  <p>Set up the following alarms and route them to an SNS topic connected to your on-call channel (PagerDuty / Slack):</p>
+  <table>
+    <tr><th>Alarm</th><th>Metric / condition</th><th>Threshold</th></tr>
+    <tr><td>Transfer failure</td><td>Transfer Family connector execution status = <code>EXCEPTION</code></td><td>Any occurrence</td></tr>
+    <tr><td>Lambda errors</td><td><code>Errors</code> metric on the Lambda function</td><td>&gt; 0 in 5 min</td></tr>
+    <tr><td>Stale queue</td><td>Age of oldest message in EventBridge DLQ</td><td>&gt; 15 min</td></tr>
+    <tr><td>Transfer latency</td><td>Transfer duration exceeds baseline</td><td>&gt; 5 min per file</td></tr>
+  </table>
+
+  <details>
+    <summary>Sample CloudWatch alarm (Terraform)</summary>
+    <div>
+<pre>resource "aws_cloudwatch_metric_alarm" "transfer_failures" {
+  alarm_name          = "s3-to-onprem-transfer-failure"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "FilesTransferredErrors"
+  namespace           = "AWS/Transfer"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+
+  dimensions = {
+    ConnectorId = aws_transfer_connector.onprem.id
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+}</pre>
+    </div>
+  </details>
+
+  <!-- ============================================================ -->
+  <!-- FAILURE HANDLING -->
+  <!-- ============================================================ -->
+  <h2 id="failure">Error handling &amp; retry strategy</h2>
+
+  <h3>Retry layers</h3>
+  <table>
+    <tr><th>Layer</th><th>Retry behaviour</th></tr>
+    <tr><td>EventBridge &rarr; Lambda</td><td>EventBridge retries for 24 hours with exponential backoff. Failed events go to a configured SQS dead-letter queue.</td></tr>
+    <tr><td>Lambda &rarr; Transfer Family</td><td>The Lambda implements 3 retries with exponential backoff (2s, 4s, 8s) before marking the transfer as failed.</td></tr>
+    <tr><td>Transfer Family &rarr; on-prem</td><td>The managed connector retries the SFTP connection up to 3 times internally. Connection timeouts, auth failures, and disk-full errors on the remote side are surfaced in the execution status.</td></tr>
+  </table>
+
+  <h3>Dead-letter handling</h3>
+  <p>Files that fail all retry attempts are moved to the <code>/failed/</code> S3 prefix with metadata tags recording the failure reason and timestamp. A scheduled Lambda runs daily to report on the failed prefix and optionally re-queue files for retry after the root cause is resolved.</p>
+
+  <div class="panel panel-warn">
+    <div class="panel-label">Idempotency</div>
+    The Lambda must be idempotent. If EventBridge delivers the same event twice (at-least-once delivery), the function should check whether the file has already been archived before initiating another transfer. Use the S3 object&rsquo;s ETag or a DynamoDB deduplication table.
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- PREREQS -->
+  <!-- ============================================================ -->
+  <h2 id="prereqs">Prerequisites &amp; setup checklist</h2>
+
+  <ul class="check">
+    <li>S3 bucket created with SSE-KMS encryption, versioning enabled, and EventBridge notifications turned on.</li>
+    <li>AWS Transfer Family SFTP connector created in the target VPC with the on-prem host key registered.</li>
+    <li>SFTP credentials stored in Secrets Manager with automatic 90-day rotation.</li>
+    <li>Direct Connect or Site-to-Site VPN link verified and stable between AWS VPC and on-prem network.</li>
+    <li>On-prem firewall rules allow inbound SFTP from the connector&rsquo;s NAT/ENI IP range.</li>
+    <li>IAM roles created with least-privilege policies for Lambda and Transfer Family.</li>
+    <li>EventBridge rule (or S3 event notification) configured with DLQ.</li>
+    <li>CloudWatch alarms and SNS topic configured for failure notifications.</li>
+    <li>CloudTrail data events enabled on the S3 bucket for audit compliance.</li>
+    <li>Transfer Family structured logging enabled to CloudWatch Logs.</li>
+    <li>End-to-end test completed with a sample file from upload to on-prem delivery.</li>
+  </ul>
+
+  <div class="panel panel-info">
+    <div class="panel-label">Related pages</div>
+    AWS Transfer Family documentation &mdash; <code>StartFileTransfer</code> API reference<br>
+    S3 EventBridge integration guide<br>
+    Corporate network connectivity runbook (Direct Connect)
+  </div>
+
+</div>
+</body>
+</html>
