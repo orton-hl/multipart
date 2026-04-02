@@ -1,0 +1,50 @@
+name: Deploy to Hostinger
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Image version to deploy'
+        required: false
+        default: 'latest'
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+          
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_SSH_PORT || 22 }}
+          script: |
+            VERSION=${{ inputs.version }}
+            IMAGE=ghcr.io/orton-hl/fin-man-ui:$VERSION
+            CONTAINER=fin-man-ui-container
+
+            # Pull image
+            docker pull $IMAGE
+
+            # Stop and remove existing container
+            docker stop $CONTAINER 2>/dev/null || true
+            docker rm $CONTAINER 2>/dev/null || true
+
+            # Run new container
+            docker run -d \
+              --name $CONTAINER \
+              --platform linux/amd64 \
+              -p 4200:4200 \
+              -e API_BASE_URL=${{ secrets.API_BASE_URL }} \
+              -e APP_VERSION=$VERSION \
+              --restart unless-stopped \
+              $IMAGE
+
+            # Clean up old images
+            docker image prune -af --filter "until=24h"
+
+            echo "Deployment completed successfully!"

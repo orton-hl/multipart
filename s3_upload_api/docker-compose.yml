@@ -1,0 +1,111 @@
+version: "3.9"
+
+services:
+
+  # ── LocalStack ──────────────────────────────────────────────────────────────
+  localstack:
+    image: localstack/localstack:3.5
+    container_name: localstack
+    ports:
+      - "4566:4566"       # unified gateway (S3, STS, KMS, CloudWatch, Lambda, EventBridge)
+      - "4510-4559:4510-4559"  # legacy service ports (optional)
+    environment:
+      # Services to enable
+      SERVICES: s3,sts,kms,cloudwatch,cloudwatch-logs,lambda,events,iam
+      # Persistence: keep state across restarts (pro feature; community uses SNAPSHOT_SAVE_STRATEGY)
+      PERSISTENCE: 0
+      # Debug
+      DEBUG: 1
+      LS_LOG: warn
+      # S3 path-style (avoids DNS issues locally)
+      S3_SKIP_SIGNATURE_VALIDATION: 1         # allow any presigned URL signature
+      DISABLE_CORS_CHECKS: 1                  # allow direct browser PUT to LocalStack
+      DISABLE_CUSTOM_CORS_S3: 1
+      # Lambda
+      LAMBDA_EXECUTOR: local
+      LAMBDA_RUNTIME_EXECUTOR: local
+      # Data dir inside container
+      DATA_DIR: /var/lib/localstack/data
+      # Host for presigned URLs — must match what the FastAPI container resolves
+      LOCALSTACK_HOST: localstack
+      HOSTNAME_EXTERNAL: localstack
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./infra/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - upload-net
+
+  # ── FastAPI upload service ───────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: upload-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Point all AWS SDK calls at LocalStack
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: eu-west-1
+      AWS_REGION: eu-west-1
+
+      # App settings (mirrors .env.example for local dev)
+      ENV: localstack
+      S3_BUCKET: co-uploads-local
+      S3_PREFIX: multipart
+      KMS_KEY_ID: ""                        # populated by init script at runtime
+      AWS_ROLE_ARN: arn:aws:iam::000000000000:role/upload-service-local
+      PRESIGN_TTL_SECONDS: 900
+      UPLOAD_MAX_BYTES: 10737418240
+      STALE_UPLOAD_HOURS: 24
+      JWT_SECRET: localstack-dev-secret
+      JWT_ALGORITHM: HS256
+      API_KEYS: '["devkey-1","devkey-2"]'
+      LOG_LEVEL: DEBUG
+      CORS_ORIGINS: '["*"]'
+      ALLOWED_CONTENT_TYPES: >
+        ["application/zip","application/octet-stream","application/gzip","text/csv","application/json"]
+    depends_on:
+      localstack:
+        condition: service_healthy
+    networks:
+      - upload-net
+    volumes:
+      - ./app:/app/app:ro        # live-reload in dev (remove in prod)
+      - ./Makefile:/app/Makefile:ro
+    command: make dev
+
+  # ── Adminer-style S3 browser (optional, useful for inspecting uploads) ───────
+  s3-browser:
+    image: cloudlena/s3manager:latest
+    container_name: s3-browser
+    ports:
+      - "8888:8080"
+    environment:
+      ENDPOINT: http://localstack:4566
+      ACCESS_KEY_ID: test
+      SECRET_ACCESS_KEY: test
+      REGION: eu-west-1
+      USE_SSL: "false"
+      FORCE_PATH_STYLE: "true"
+    depends_on:
+      localstack:
+        condition: service_healthy
+    networks:
+      - upload-net
+
+volumes:
+  localstack_data:
+
+networks:
+  upload-net:
+    driver: bridge

@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body { @apply font-body antialiased bg-white text-ink-900; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-ink-400 rounded-full; }
+  ::selection { background: rgba(243, 246, 247, 0.15); color: #e9edf0; }
+}
+
+@layer components {
+  .card       { @apply bg-ink-50 border border-ink-300 rounded-2xl shadow-sm; }
+  .card-inner { @apply bg-ink-100 border border-ink-300 rounded-xl; }
+
+  .btn { @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-ink-300 text-ink-700 bg-ink-50 hover:bg-ink-200 hover:border-ink-400 active:scale-[0.98] transition-all duration-100 cursor-pointer disabled:opacity-40 disabled:pointer-events-none; }
+  .btn-primary { @apply border-azure text-white bg-azure hover:bg-azure-dim; }
+  .btn-danger  { @apply border-danger/50 text-danger bg-danger/10 hover:bg-danger/20; }
+  .btn-jade    { @apply border-jade/50 text-jade bg-jade/10 hover:bg-jade/20; }
+
+  .input  { @apply w-full bg-ink-50 border border-ink-300 rounded-xl px-3 py-2.5 text-sm text-ink-900 font-mono focus:outline-none focus:border-azure focus:ring-1 focus:ring-azure/30 placeholder:text-ink-500 transition-colors; }
+  .select { @apply input appearance-none cursor-pointer; }
+  .label  { @apply block text-[10px] font-semibold tracking-[0.12em] uppercase text-ink-600 font-mono mb-1.5; }
+
+  .badge        { @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold; }
+  .badge-azure  { @apply bg-azure/10  text-azure  border border-azure/30; }
+  .badge-jade   { @apply bg-jade/10   text-jade   border border-jade/30; }
+  .badge-amber  { @apply bg-amber/10  text-amber-dim  border border-amber/30; }
+  .badge-coral  { @apply bg-coral/10  text-coral  border border-coral/30; }
+  .badge-danger { @apply bg-danger/10 text-danger border border-danger/30; }
+  .badge-muted  { @apply bg-ink-200   text-ink-600 border border-ink-300; }
+
+  .divider { @apply h-px bg-ink-300; }
+
+  .stat-card { @apply bg-ink-50 border border-ink-300 rounded-xl p-4 shadow-sm; }
+  .stat-val  { @apply text-2xl font-display font-bold text-ink-900; }
+  .stat-lbl  { @apply text-[11px] font-mono text-ink-600 mt-0.5; }
+
+  .nav-item { @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-ink-600 cursor-pointer transition-all hover:text-ink-900 hover:bg-ink-200; }
+  .nav-item.active { @apply bg-azure/10 text-azure border border-azure/20; }
+
+  .shimmer-bg {
+    background: linear-gradient(90deg, transparent 0%, rgba(0,86,145,0.06) 50%, transparent 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+}

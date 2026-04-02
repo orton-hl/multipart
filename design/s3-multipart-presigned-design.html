@@ -1,0 +1,1307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multipart Presigned S3 Upload — Architecture Design</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Syne:wght@400;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap');
+
+  :root {
+    --bg: #0b0f14;
+    --surface: #111720;
+    --surface2: #161e2a;
+    --border: #1f2d3d;
+    --accent: #00d4ff;
+    --accent2: #ff6b35;
+    --accent3: #7fffb2;
+    --accent4: #ffd166;
+    --text: #e2eaf4;
+    --muted: #5a7490;
+    --danger: #ff4757;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* NAV */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(11,15,20,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px; height: 56px;
+  }
+  .nav-brand { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 15px; letter-spacing: 0.04em; color: var(--accent); }
+  .nav-brand span { color: var(--muted); font-weight: 400; }
+  .nav-tabs { display: flex; gap: 4px; }
+  .nav-tab {
+    padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 500;
+    cursor: pointer; color: var(--muted); border: none; background: none;
+    transition: all 0.15s; font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.02em;
+  }
+  .nav-tab:hover { color: var(--text); background: var(--surface); }
+  .nav-tab.active { color: var(--accent); background: rgba(0,212,255,0.08); }
+  .tag { font-size: 10px; padding: 3px 8px; border-radius: 20px; font-family: 'IBM Plex Mono', monospace; font-weight: 600; letter-spacing: 0.06em; }
+  .tag-minor { background: rgba(255,209,102,0.12); color: var(--accent4); border: 1px solid rgba(255,209,102,0.2); }
+  .tag-sprint { background: rgba(0,212,255,0.08); color: var(--accent); border: 1px solid rgba(0,212,255,0.15); }
+
+  /* SECTIONS */
+  .section { display: none; padding: 40px 48px; max-width: 1200px; margin: 0 auto; }
+  .section.active { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+
+  h1 { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800; margin-bottom: 6px; }
+  h2 { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 16px; color: var(--text); }
+  h3 { font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+  p { color: #a8bdd0; margin-bottom: 12px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+
+  /* ARCH DIAGRAM */
+  .arch-diagram {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .arch-diagram::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 20% 50%, rgba(0,212,255,0.04) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 30%, rgba(127,255,178,0.03) 0%, transparent 50%);
+    pointer-events: none;
+  }
+
+  .arch-row { display: flex; align-items: center; gap: 0; margin-bottom: 16px; flex-wrap: wrap; }
+  .arch-node {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 14px 18px; border-radius: 10px; min-width: 110px; text-align: center;
+    font-size: 12px; font-weight: 500; position: relative;
+  }
+  .arch-node .icon { font-size: 22px; margin-bottom: 6px; }
+  .arch-node .label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.7; }
+  .node-client { background: rgba(255,107,53,0.1); border: 1px solid rgba(255,107,53,0.3); color: var(--accent2); }
+  .node-api { background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.25); color: var(--accent); }
+  .node-s3 { background: rgba(127,255,178,0.08); border: 1px solid rgba(127,255,178,0.25); color: var(--accent3); }
+  .node-iam { background: rgba(255,209,102,0.08); border: 1px solid rgba(255,209,102,0.25); color: var(--accent4); }
+  .node-kms { background: rgba(255,71,87,0.08); border: 1px solid rgba(255,71,87,0.25); color: var(--danger); }
+  .node-lambda { background: rgba(127,255,178,0.06); border: 1px solid rgba(127,255,178,0.2); color: var(--accent3); }
+  .node-cw { background: rgba(90,116,144,0.15); border: 1px solid var(--border); color: var(--muted); }
+
+  .arch-arrow {
+    display: flex; flex-direction: column; align-items: center; padding: 0 8px;
+    font-size: 9px; color: var(--muted); font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.04em; white-space: nowrap;
+  }
+  .arrow-line { font-size: 18px; color: var(--border); margin: 2px 0; }
+
+  /* SEQUENCE DIAGRAM */
+  .seq-container { overflow-x: auto; }
+  .seq-diagram {
+    min-width: 700px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    position: relative;
+  }
+  .seq-actors { display: flex; justify-content: space-between; margin-bottom: 0; }
+  .seq-actor {
+    text-align: center; width: 130px; flex-shrink: 0;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+    padding: 10px 8px; border-radius: 8px;
+  }
+  .actor-client { background: rgba(255,107,53,0.12); color: var(--accent2); border: 1px solid rgba(255,107,53,0.25); }
+  .actor-api { background: rgba(0,212,255,0.08); color: var(--accent); border: 1px solid rgba(0,212,255,0.2); }
+  .actor-s3 { background: rgba(127,255,178,0.08); color: var(--accent3); border: 1px solid rgba(127,255,178,0.2); }
+  .actor-lambda { background: rgba(255,209,102,0.08); color: var(--accent4); border: 1px solid rgba(255,209,102,0.2); }
+
+  .seq-body { position: relative; padding: 0; }
+  .seq-lifelines {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    display: flex; justify-content: space-between; pointer-events: none;
+  }
+  .seq-lifeline {
+    width: 130px; display: flex; justify-content: center;
+  }
+  .seq-lifeline::after {
+    content: ''; width: 1px; background: var(--border);
+    height: 100%; display: block;
+  }
+
+  .seq-step {
+    display: flex; align-items: center; min-height: 38px;
+    position: relative; padding: 6px 0;
+  }
+  .seq-step-label {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    font-size: 10px; color: var(--muted); white-space: nowrap;
+    background: var(--surface2); padding: 2px 6px; border-radius: 4px; z-index: 2;
+    border: 1px solid var(--border);
+  }
+  .seq-arrow {
+    height: 2px; position: absolute; z-index: 1;
+  }
+  .seq-arrow::after {
+    content: '▶'; position: absolute; right: -6px; top: -7px; font-size: 10px;
+  }
+  .seq-arrow.left::after { content: '◀'; left: -6px; right: auto; }
+  .seq-arrow.dashed { background: repeating-linear-gradient(90deg, var(--border) 0, var(--border) 6px, transparent 6px, transparent 12px); }
+  .seq-arrow.solid { background: var(--accent); }
+  .seq-arrow.orange { background: var(--accent2); }
+  .seq-arrow.green { background: var(--accent3); }
+  .seq-arrow.yellow { background: var(--accent4); }
+
+  /* sequence as table */
+  .seq-table { width: 100%; border-collapse: collapse; }
+  .seq-table td { padding: 4px 8px; vertical-align: middle; }
+  .seq-msg {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; font-family: 'IBM Plex Mono', monospace;
+  }
+  .arrow-right::after { content: ' →'; }
+  .arrow-left::after { content: ' ←'; }
+  .arrow-dash::after { content: ' - - →'; opacity: 0.5; }
+  .seq-num { font-size: 10px; color: var(--muted); min-width: 20px; }
+  .seq-participants { display: flex; gap: 6px; font-size: 10px; }
+  .seq-from { }
+  .seq-to { }
+  .seq-desc { color: #a8bdd0; }
+
+  .seq-visual { width: 100%; }
+  .step-row { display: flex; align-items: center; height: 44px; position: relative; }
+  .col { width: 16.66%; display: flex; justify-content: center; position: relative; }
+  .lifeline-col { width: 16.66%; display: flex; justify-content: center; }
+
+  .vline {
+    position: absolute; width: 1px; background: var(--border);
+    top: 0; bottom: 0; left: 50%; transform: translateX(-50%);
+  }
+  .hline {
+    position: absolute; height: 2px; top: 50%;
+    transform: translateY(-50%); z-index: 2;
+  }
+  .step-label {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    font-size: 10px; font-family: 'IBM Plex Mono', monospace;
+    color: var(--text); white-space: nowrap; z-index: 3;
+    background: var(--surface2); padding: 2px 6px; border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+
+  /* CODE */
+  pre {
+    background: #060a0f;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    overflow-x: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    margin-bottom: 16px;
+  }
+  .kw { color: #7fffb2; }
+  .str { color: #ffd166; }
+  .cm { color: var(--muted); font-style: italic; }
+  .fn { color: var(--accent); }
+  .num { color: var(--accent2); }
+  .ty { color: #c792ea; }
+
+  /* CHECKLIST */
+  .checklist { list-style: none; }
+  .checklist li {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px; color: #a8bdd0;
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .check-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .check-title { font-weight: 500; color: var(--text); display: block; }
+
+  /* API CONTRACT */
+  .endpoint-card {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 12px; overflow: hidden;
+  }
+  .endpoint-header {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border);
+  }
+  .method {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 700;
+    padding: 3px 8px; border-radius: 5px; letter-spacing: 0.06em;
+  }
+  .method-post { background: rgba(0,212,255,0.15); color: var(--accent); }
+  .method-get { background: rgba(127,255,178,0.12); color: var(--accent3); }
+  .path { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--text); }
+  .endpoint-desc { padding: 14px 18px; font-size: 13px; color: #8fa8c0; }
+
+  .table { width: 100%; border-collapse: collapse; }
+  .table th {
+    text-align: left; padding: 10px 14px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  .table td { padding: 10px 14px; font-size: 12px; border-bottom: 1px solid rgba(31,45,61,0.5); color: #a8bdd0; }
+  .table td:first-child { font-family: 'IBM Plex Mono', monospace; color: var(--text); font-size: 11px; }
+
+  /* GRID */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  /* METRICS */
+  .metric-card {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px; text-align: center;
+  }
+  .metric-val { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800; color: var(--accent); }
+  .metric-label { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: 'IBM Plex Mono', monospace; }
+
+  /* LEGEND */
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* TABS inside sections */
+  .inner-tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
+  .inner-tab {
+    padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 500;
+    cursor: pointer; color: var(--muted); border: 1px solid var(--border); background: none;
+    transition: all 0.15s; font-family: 'IBM Plex Mono', monospace;
+  }
+  .inner-tab:hover { color: var(--text); border-color: var(--muted); }
+  .inner-tab.active { color: var(--accent3); border-color: var(--accent3); background: rgba(127,255,178,0.05); }
+
+  .sub-section { display: none; }
+  .sub-section.active { display: block; }
+
+  .badge { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-weight: 600; vertical-align: middle; margin-left: 6px; }
+  .badge-required { background: rgba(255,71,87,0.12); color: var(--danger); border: 1px solid rgba(255,71,87,0.2); }
+  .badge-optional { background: rgba(90,116,144,0.12); color: var(--muted); border: 1px solid var(--border); }
+
+  .divider { height: 1px; background: var(--border); margin: 28px 0; }
+
+  .note {
+    background: rgba(255,209,102,0.06); border: 1px solid rgba(255,209,102,0.15);
+    border-left: 3px solid var(--accent4); border-radius: 0 8px 8px 0;
+    padding: 12px 16px; font-size: 13px; color: #b8a070; margin-bottom: 16px;
+  }
+
+  /* overview header */
+  .overview-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 32px; gap: 20px; flex-wrap: wrap;
+  }
+  .overview-header .tags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .summary-box {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px 24px; margin-bottom: 28px;
+    border-left: 3px solid var(--accent);
+  }
+  .summary-box h3 { margin-bottom: 8px; }
+
+  /* acceptance criteria */
+  .ac-list { list-style: none; }
+  .ac-list li {
+    display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(31,45,61,0.6);
+  }
+  .ac-list li:last-child { border-bottom: none; }
+  .ac-num { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--accent); font-weight: 600; min-width: 26px; }
+  .ac-text { font-size: 13px; color: #a8bdd0; }
+
+  /* flow phase labels */
+  .phase-label {
+    display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+    letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
+    padding: 2px 8px; border-radius: 3px; margin-right: 8px;
+  }
+  .phase-init { background: rgba(0,212,255,0.1); color: var(--accent); }
+  .phase-upload { background: rgba(127,255,178,0.1); color: var(--accent3); }
+  .phase-complete { background: rgba(255,209,102,0.1); color: var(--accent4); }
+  .phase-error { background: rgba(255,71,87,0.1); color: var(--danger); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">S3-MULTIPART <span>/ Architecture Design Doc</span></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showSection('overview')">Overview</button>
+    <button class="nav-tab" onclick="showSection('architecture')">Architecture</button>
+    <button class="nav-tab" onclick="showSection('sequence')">Sequence</button>
+    <button class="nav-tab" onclick="showSection('api')">API Contract</button>
+    <button class="nav-tab" onclick="showSection('security')">Security</button>
+    <button class="nav-tab" onclick="showSection('terraform')">Terraform</button>
+    <button class="nav-tab" onclick="showSection('ops')">Ops</button>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <span class="tag tag-minor">Minor</span>
+    <span class="tag tag-sprint">DIS Sprint 2.2 2026</span>
+  </div>
+</nav>
+
+<!-- OVERVIEW -->
+<div id="overview" class="section active">
+  <div class="overview-header">
+    <div>
+      <h1>Multipart Presigned-S3 Upload Pattern</h1>
+      <p style="color:var(--muted);font-size:13px;margin-top:4px;">DIS Q2 2026 · Platform Expansion · Architecture + S3</p>
+      <div class="tags">
+        <span class="tag" style="background:rgba(90,116,144,0.12);color:var(--muted);border:1px solid var(--border);">UNCOVERED</span>
+        <span class="tag" style="background:rgba(127,255,178,0.08);color:var(--accent3);border:1px solid rgba(127,255,178,0.2);">Large File Uploads</span>
+        <span class="tag" style="background:rgba(0,212,255,0.08);color:var(--accent);border:1px solid rgba(0,212,255,0.15);">VDI / External Partners</span>
+      </div>
+    </div>
+    <div class="grid-3" style="min-width:320px;">
+      <div class="metric-card"><div class="metric-val">&gt;1GB</div><div class="metric-label">File size target</div></div>
+      <div class="metric-card"><div class="metric-val">5MB</div><div class="metric-label">Min part size</div></div>
+      <div class="metric-card"><div class="metric-val">10K</div><div class="metric-label">Max parts (S3)</div></div>
+    </div>
+  </div>
+
+  <div class="summary-box">
+    <h3>Summary</h3>
+    <p style="margin:0;font-size:13px;color:#a8bdd0;">Design and document a multipart presigned-S3 upload pattern for large file uploads from <strong style="color:var(--text);">untrusted clients</strong> (VDI / external partners), covering presigned URL generation, assembly, validation, retries, security, and Terraform/IAM patterns. The design must include how the backend issues presigned parts, completes the multipart upload, verifies integrity, and enforces access controls and lifecycle/purge policies.</p>
+  </div>
+
+  <div class="card">
+    <h2>Acceptance Criteria</h2>
+    <ul class="ac-list">
+      <li><span class="ac-num">AC-1</span><span class="ac-text"><strong style="color:var(--text);">Architecture + Sequence Diagrams</strong> — A single design doc detailing: presign flow, upload flow, complete flow, error/retry handling, and cleanup of abandoned multipart uploads.</span></li>
+      <li><span class="ac-num">AC-2</span><span class="ac-text"><strong style="color:var(--text);">Security Model</strong> — Minimum IAM permissions, short TTL for presigned URLs, optional per-upload encryption (SSE-S3 or SSE-KMS), restrict uploads to intended bucket/prefix.</span></li>
+      <li><span class="ac-num">AC-3</span><span class="ac-text"><strong style="color:var(--text);">API Contract</strong> — Specified for presign endpoints: <code style="color:var(--accent);font-size:11px;">POST /uploads</code> → returns uploadId + presigned URLs for parts; <code style="color:var(--accent);font-size:11px;">POST /uploads/complete</code> → client provides ETags.</span></li>
+      <li><span class="ac-num">AC-4</span><span class="ac-text"><strong style="color:var(--text);">Operational Controls</strong> — Monitoring metrics, CloudWatch/Datadog events for aborted uploads, and a cleanup job for stale multipart uploads.</span></li>
+      <li><span class="ac-num">AC-5</span><span class="ac-text"><strong style="color:var(--text);">Example Terraform snippet + Client snippet</strong> — Node or Python that demonstrates generating presigned URLs and completing the upload.</span></li>
+      <li><span class="ac-num">AC-6</span><span class="ac-text"><strong style="color:var(--text);">Security Review Checklist</strong> — Guidance for preventing malicious uploads (size limits, allowed content-types, virus scanning hook).</span></li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <strong>Definition of Done:</strong> Design doc approved, Terraform examples available in repo, PoC successfully uploads a &gt;1GB file via multipart presigned flow and is cleaned up if abandoned.
+  </div>
+</div>
+
+<!-- ARCHITECTURE -->
+<div id="architecture" class="section">
+  <h2>System Architecture Diagram</h2>
+  <p>End-to-end component view for the multipart presigned S3 upload system.</p>
+
+  <div class="arch-diagram">
+    <div style="margin-bottom:24px;">
+      <h3>Component Overview</h3>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div>Client Layer</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>Backend / API</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--accent3)"></div>AWS Storage</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--accent4)"></div>Security / Identity</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--danger)"></div>Encryption / KMS</div>
+      </div>
+    </div>
+
+    <!-- Row 1: Client → API -->
+    <div style="display:flex;align-items:stretch;gap:0;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+      <!-- Client -->
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:130px;">
+        <div class="arch-node node-client">
+          <div class="icon">💻</div>
+          <div style="font-weight:600;">VDI Client</div>
+          <div class="label">Untrusted</div>
+        </div>
+        <div class="arch-node node-client" style="font-size:11px;padding:10px;">
+          <div class="icon" style="font-size:16px;">🤝</div>
+          <div>Ext Partner</div>
+          <div class="label">Untrusted</div>
+        </div>
+      </div>
+
+      <div class="arch-arrow">
+        <div style="font-size:10px;margin-bottom:4px;">①&nbsp;POST /uploads</div>
+        <div class="arrow-line">────────→</div>
+        <div style="font-size:9px;margin-top:4px;color:rgba(90,116,144,0.6);">(HTTPS + mTLS)</div>
+      </div>
+
+      <!-- API -->
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:130px;">
+        <div class="arch-node node-api">
+          <div class="icon">⚡</div>
+          <div style="font-weight:600;">Upload API</div>
+          <div class="label">Presign Service</div>
+        </div>
+        <div class="arch-node node-api" style="font-size:11px;padding:10px;">
+          <div class="icon" style="font-size:16px;">🔑</div>
+          <div>Auth Middleware</div>
+          <div class="label">JWT / API Key</div>
+        </div>
+      </div>
+
+      <div class="arch-arrow">
+        <div style="font-size:10px;margin-bottom:4px;">② AssumeRole</div>
+        <div class="arrow-line">────────→</div>
+        <div style="font-size:9px;margin-top:4px;color:rgba(90,116,144,0.6);"></div>
+      </div>
+
+      <!-- IAM / STS -->
+      <div class="arch-node node-iam" style="min-width:130px;">
+        <div class="icon">🛡️</div>
+        <div style="font-weight:600;">STS / IAM</div>
+        <div class="label">Role: upload-svc</div>
+      </div>
+
+      <div class="arch-arrow">
+        <div style="font-size:10px;margin-bottom:4px;">③ temp creds</div>
+        <div class="arrow-line">←───────</div>
+      </div>
+
+      <!-- KMS -->
+      <div class="arch-node node-kms" style="min-width:130px;">
+        <div class="icon">🔐</div>
+        <div style="font-weight:600;">KMS</div>
+        <div class="label">CMK / SSE-KMS</div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:var(--border);margin:16px 0;"></div>
+
+    <!-- Row 2: API → S3 -->
+    <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;gap:8px;">
+      <div class="arch-node node-api" style="min-width:130px;">
+        <div class="icon">📋</div>
+        <div style="font-weight:600;">Presigned URLs</div>
+        <div class="label">Parts 1…N, TTL</div>
+      </div>
+
+      <div class="arch-arrow">
+        <div style="font-size:10px;margin-bottom:4px;">④ URLs returned</div>
+        <div class="arrow-line">←───────</div>
+        <div style="font-size:9px;margin-top:4px;"></div>
+      </div>
+
+      <div class="arch-node node-client" style="min-width:130px;">
+        <div class="icon">📤</div>
+        <div style="font-weight:600;">Client Upload</div>
+        <div class="label">PUT Parts → S3</div>
+      </div>
+
+      <div class="arch-arrow">
+        <div style="font-size:10px;margin-bottom:4px;">⑤ PUT /part-N</div>
+        <div class="arrow-line">────────→</div>
+        <div style="font-size:9px;margin-top:4px;color:rgba(90,116,144,0.6);">direct to S3</div>
+      </div>
+
+      <div class="arch-node node-s3" style="min-width:130px;">
+        <div class="icon">🪣</div>
+        <div style="font-weight:600;">S3 Bucket</div>
+        <div class="label">uploads/{prefix}/</div>
+      </div>
+
+      <div class="arch-arrow">
+        <div style="font-size:10px;margin-bottom:4px;">ETag per part</div>
+        <div class="arrow-line">←───────</div>
+      </div>
+
+      <div class="arch-node node-api" style="min-width:130px;">
+        <div class="icon">✅</div>
+        <div style="font-weight:600;">CompleteMultipart</div>
+        <div class="label">ETags + UploadId</div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:var(--border);margin:16px 0;"></div>
+
+    <!-- Row 3: Cleanup / Monitoring -->
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div class="arch-node node-lambda" style="min-width:130px;">
+        <div class="icon">🧹</div>
+        <div style="font-weight:600;">Cleanup Lambda</div>
+        <div class="label">EventBridge Cron</div>
+      </div>
+      <div class="arch-arrow">
+        <div style="font-size:10px;margin-bottom:4px;">AbortMultipart</div>
+        <div class="arrow-line">────────→</div>
+      </div>
+      <div class="arch-node node-s3" style="min-width:130px;">
+        <div class="icon">🗑️</div>
+        <div style="font-weight:600;">Stale Parts</div>
+        <div class="label">Lifecycle Policy</div>
+      </div>
+      <div style="width:40px;"></div>
+      <div class="arch-node node-cw" style="min-width:130px;">
+        <div class="icon">📊</div>
+        <div style="font-weight:600;">CloudWatch</div>
+        <div class="label">Metrics + Alarms</div>
+      </div>
+      <div style="width:40px;"></div>
+      <div class="arch-node node-cw" style="min-width:130px;">
+        <div class="icon">🐕</div>
+        <div style="font-weight:600;">Datadog</div>
+        <div class="label">APM + Events</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>Upload Flow Phases</h3>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+        <div style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.1);">
+          <span class="phase-label phase-init">Init</span>
+          <span style="font-size:12px;color:#a8bdd0;">Client calls <code style="color:var(--accent);">POST /uploads</code>. Backend creates multipart upload via SDK, generates presigned URLs per part. Returns <code style="color:var(--accent);">uploadId</code> + array of presigned PUT URLs.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;background:rgba(127,255,178,0.03);border:1px solid rgba(127,255,178,0.1);">
+          <span class="phase-label phase-upload">Upload</span>
+          <span style="font-size:12px;color:#a8bdd0;">Client splits file into parts (≥5MB each, except last). Uploads each part via PUT to the presigned URL. Collects <code style="color:var(--accent3);">ETag</code> response header per part. Supports parallel/concurrent uploads.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;background:rgba(255,209,102,0.03);border:1px solid rgba(255,209,102,0.1);">
+          <span class="phase-label phase-complete">Complete</span>
+          <span style="font-size:12px;color:#a8bdd0;">Client calls <code style="color:var(--accent4);">POST /uploads/complete</code> with <code style="color:var(--accent4);">uploadId</code> and ordered ETag array. Backend calls <code>CompleteMultipartUpload</code>, verifies checksum, triggers post-processing.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;background:rgba(255,71,87,0.03);border:1px solid rgba(255,71,87,0.1);">
+          <span class="phase-label phase-error">Error / Abort</span>
+          <span style="font-size:12px;color:#a8bdd0;">On failure or timeout, backend calls <code style="color:var(--danger);">AbortMultipartUpload</code>. EventBridge cron runs daily cleanup for uploads &gt;24h old. S3 lifecycle rule as safety net.</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>S3 Bucket Design</h3>
+      <table class="table">
+        <thead><tr><th>Attribute</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Bucket naming</td><td><code>co-uploads-{env}</code></td></tr>
+          <tr><td>Prefix strategy</td><td><code>multipart/{partnerId}/{date}/{uploadId}/</code></td></tr>
+          <tr><td>Encryption at rest</td><td>SSE-KMS with CMK per environment</td></tr>
+          <tr><td>Versioning</td><td>Disabled (uploads are write-once)</td></tr>
+          <tr><td>Block Public Access</td><td>All 4 flags enabled</td></tr>
+          <tr><td>Lifecycle — incomplete parts</td><td>AbortIncompleteMultipartUpload after 1 day</td></tr>
+          <tr><td>Lifecycle — completed objects</td><td>Transition to Glacier after 90 days</td></tr>
+          <tr><td>Access logging</td><td>Enabled to <code>co-access-logs-{env}</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- SEQUENCE -->
+<div id="sequence" class="section">
+  <h2>Sequence Diagrams</h2>
+
+  <div class="inner-tabs">
+    <button class="inner-tab active" onclick="showSub('seq','happy')">Happy Path</button>
+    <button class="inner-tab" onclick="showSub('seq','retry')">Part Retry</button>
+    <button class="inner-tab" onclick="showSub('seq','abort')">Abort / Cleanup</button>
+  </div>
+
+  <div id="seq-happy" class="sub-section active">
+    <div class="arch-diagram">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px;margin-bottom:0;">
+        <div class="seq-actor actor-client">CLIENT</div>
+        <div class="seq-actor actor-api">UPLOAD API</div>
+        <div class="seq-actor actor-s3">S3 / STS</div>
+        <div class="seq-actor actor-lambda">LAMBDA / CW</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px;padding:0;position:relative;">
+        <!-- lifelines -->
+        <style>
+          .sq { border-top: 1px dashed rgba(31,45,61,0.8); padding: 10px 8px; font-size:11px; font-family:'IBM Plex Mono',monospace; min-height:44px; position:relative; }
+          .sq-msg { position:absolute; left:0; right:0; top:50%; transform:translateY(-50%); text-align:center; font-size:10px; background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:2px 4px; margin:0 4px; z-index:5; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+          .sq-arrow-r { position:absolute; right:-12px; top:50%; transform:translateY(-50%); color:var(--accent); z-index:6; font-size:16px; }
+          .sq-arrow-l { position:absolute; left:-12px; top:50%; transform:translateY(-50%); color:var(--accent3); z-index:6; font-size:16px; }
+        </style>
+
+        <!-- Step 1 -->
+        <div class="sq" style="background:rgba(0,212,255,0.03);">
+          <div class="sq-msg" style="color:var(--accent);">POST /uploads {filename, size, parts}</div>
+          <div class="sq-arrow-r">→</div>
+        </div>
+        <div class="sq" style="background:rgba(0,212,255,0.03);"></div>
+        <div class="sq" style="background:rgba(0,212,255,0.03);"></div>
+        <div class="sq" style="background:rgba(0,212,255,0.03);"></div>
+
+        <!-- Step 2 -->
+        <div class="sq" style="background:rgba(255,209,102,0.02);"></div>
+        <div class="sq" style="background:rgba(255,209,102,0.03);">
+          <div class="sq-msg" style="color:var(--accent4);">AssumeRole → temp creds</div>
+          <div class="sq-arrow-r">→</div>
+        </div>
+        <div class="sq" style="background:rgba(255,209,102,0.03);"></div>
+        <div class="sq" style="background:rgba(255,209,102,0.03);"></div>
+
+        <!-- Step 3 -->
+        <div class="sq"></div>
+        <div class="sq" style="background:rgba(0,212,255,0.02);">
+          <div class="sq-msg" style="color:var(--accent3);">CreateMultipartUpload → uploadId</div>
+          <div class="sq-arrow-r">→</div>
+        </div>
+        <div class="sq"></div>
+        <div class="sq"></div>
+
+        <!-- Step 4 -->
+        <div class="sq"></div>
+        <div class="sq" style="background:rgba(0,212,255,0.02);">
+          <div class="sq-msg" style="color:var(--accent);">GeneratePresignedUrl × N parts (TTL=15min)</div>
+          <div class="sq-arrow-r">→</div>
+        </div>
+        <div class="sq"></div>
+        <div class="sq"></div>
+
+        <!-- Step 5 -->
+        <div class="sq" style="background:rgba(0,212,255,0.03);">
+          <div class="sq-msg" style="color:var(--accent);">{uploadId, presignedUrls[]} ← returned</div>
+          <div class="sq-arrow-l">←</div>
+        </div>
+        <div class="sq" style="background:rgba(0,212,255,0.03);"></div>
+        <div class="sq" style="background:rgba(0,212,255,0.03);"></div>
+        <div class="sq" style="background:rgba(0,212,255,0.03);"></div>
+
+        <!-- Step 6 -->
+        <div class="sq" style="background:rgba(127,255,178,0.03);">
+          <div class="sq-msg" style="color:var(--accent3);">PUT presigned URL (part 1…N) ‖ concurrent</div>
+          <div class="sq-arrow-r">→</div>
+        </div>
+        <div class="sq" style="background:rgba(127,255,178,0.02);"></div>
+        <div class="sq" style="background:rgba(127,255,178,0.03);"></div>
+        <div class="sq" style="background:rgba(127,255,178,0.02);"></div>
+
+        <!-- Step 7 -->
+        <div class="sq" style="background:rgba(127,255,178,0.03);">
+          <div class="sq-msg" style="color:var(--accent3);">200 OK + ETag header per part ←</div>
+          <div class="sq-arrow-l">←</div>
+        </div>
+        <div class="sq"></div>
+        <div class="sq"></div>
+        <div class="sq"></div>
+
+        <!-- Step 8 -->
+        <div class="sq" style="background:rgba(255,209,102,0.03);">
+          <div class="sq-msg" style="color:var(--accent4);">POST /uploads/complete {uploadId, parts:[{partNum,etag}]}</div>
+          <div class="sq-arrow-r">→</div>
+        </div>
+        <div class="sq" style="background:rgba(255,209,102,0.02);"></div>
+        <div class="sq" style="background:rgba(255,209,102,0.02);"></div>
+        <div class="sq" style="background:rgba(255,209,102,0.02);"></div>
+
+        <!-- Step 9 -->
+        <div class="sq"></div>
+        <div class="sq" style="background:rgba(255,209,102,0.02);">
+          <div class="sq-msg" style="color:var(--accent4);">CompleteMultipartUpload(uploadId, parts)</div>
+          <div class="sq-arrow-r">→</div>
+        </div>
+        <div class="sq"></div>
+        <div class="sq"></div>
+
+        <!-- Step 10 -->
+        <div class="sq" style="background:rgba(127,255,178,0.03);">
+          <div class="sq-msg" style="color:var(--accent3);">200 {fileKey, etag, size} ←</div>
+          <div class="sq-arrow-l">←</div>
+        </div>
+        <div class="sq"></div>
+        <div class="sq"></div>
+        <div class="sq" style="background:rgba(127,255,178,0.02);">
+          <div class="sq-msg" style="color:var(--accent3); font-size:9px;">emit upload.completed event → CW</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="seq-retry" class="sub-section">
+    <div class="card">
+      <h3>Part Retry Strategy</h3>
+      <p>When a part PUT fails (network error, timeout, 5xx), the client retries using the same presigned URL if still within TTL, or requests a fresh URL via <code style="color:var(--accent);">GET /uploads/{uploadId}/part/{partNumber}/refresh</code>.</p>
+      <table class="table" style="margin-top:12px;">
+        <thead><tr><th>Attempt</th><th>Delay</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td>1st retry</td><td>1s</td><td>Retry same presigned URL</td></tr>
+          <tr><td>2nd retry</td><td>3s</td><td>Retry same presigned URL</td></tr>
+          <tr><td>3rd retry</td><td>10s</td><td>Request fresh presigned URL, then retry</td></tr>
+          <tr><td>4th retry</td><td>30s</td><td>Request fresh presigned URL, then retry</td></tr>
+          <tr><td>Fail</td><td>—</td><td>Surface error to user; upload remains resumable for 24h</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="seq-abort" class="sub-section">
+    <div class="card">
+      <h3>Abort &amp; Cleanup Flow</h3>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+        <div style="padding:10px;border-radius:6px;background:rgba(255,71,87,0.04);border:1px solid rgba(255,71,87,0.1);font-size:12px;color:#a8bdd0;">
+          <span class="phase-label phase-error">Explicit Abort</span> Client calls <code style="color:var(--danger);">DELETE /uploads/{uploadId}</code>. Backend immediately calls <code>AbortMultipartUpload</code>. Emits <code>upload.aborted</code> event to CloudWatch.
+        </div>
+        <div style="padding:10px;border-radius:6px;background:rgba(255,71,87,0.04);border:1px solid rgba(255,71,87,0.1);font-size:12px;color:#a8bdd0;">
+          <span class="phase-label phase-error">Timeout Cleanup</span> EventBridge cron (daily 03:00 UTC) invokes Cleanup Lambda. Lambda lists all in-progress multipart uploads &gt;24h old via <code>ListMultipartUploads</code>. For each: calls <code>AbortMultipartUpload</code> and logs to CW + Datadog.
+        </div>
+        <div style="padding:10px;border-radius:6px;background:rgba(255,71,87,0.04);border:1px solid rgba(255,71,87,0.1);font-size:12px;color:#a8bdd0;">
+          <span class="phase-label phase-error">S3 Lifecycle Net</span> S3 <code>AbortIncompleteMultipartUpload</code> lifecycle rule fires after 1 day as a belt-and-suspenders safety net in case Lambda is disrupted.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- API CONTRACT -->
+<div id="api" class="section">
+  <h2>API Contract</h2>
+  <p>REST API for the presign service. All endpoints require authentication (JWT Bearer or API Key).</p>
+
+  <!-- POST /uploads -->
+  <div class="endpoint-card">
+    <div class="endpoint-header">
+      <span class="method method-post">POST</span>
+      <span class="path">/uploads</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;">Initiate multipart upload</span>
+    </div>
+    <div class="endpoint-desc">
+      <p style="margin-bottom:12px;">Creates a new multipart upload session. Returns <code style="color:var(--accent);">uploadId</code> and an array of presigned PUT URLs, one per file part.</p>
+      <div class="grid-2">
+        <div>
+          <h3 style="margin-bottom:8px;">Request Body</h3>
+          <pre><span class="cm">// Content-Type: application/json</span>
+{
+  <span class="str">"filename"</span>: <span class="str">"data-export-2026.zip"</span>,
+  <span class="str">"contentType"</span>: <span class="str">"application/zip"</span>,
+  <span class="str">"fileSizeBytes"</span>: <span class="num">2684354560</span>,  <span class="cm">// 2.5 GB</span>
+  <span class="str">"partCount"</span>: <span class="num">512</span>,           <span class="cm">// e.g. 5MB parts</span>
+  <span class="str">"checksum"</span>: <span class="str">"sha256:abc123..."</span>,<span class="cm">// optional</span>
+  <span class="str">"encryption"</span>: <span class="str">"SSE-KMS"</span>,     <span class="cm">// or "SSE-S3"</span>
+  <span class="str">"metadata"</span>: {
+    <span class="str">"partnerId"</span>: <span class="str">"partner-42"</span>,
+    <span class="str">"uploadedBy"</span>: <span class="str">"user@example.com"</span>
+  }
+}</pre>
+        </div>
+        <div>
+          <h3 style="margin-bottom:8px;">Response 201</h3>
+          <pre>{
+  <span class="str">"uploadId"</span>: <span class="str">"mpu_01HZQTV..."</span>,
+  <span class="str">"s3UploadId"</span>: <span class="str">"VXBsb2Fk..."</span>,
+  <span class="str">"bucket"</span>: <span class="str">"co-uploads-prod"</span>,
+  <span class="str">"key"</span>: <span class="str">"multipart/p-42/2026-07/..."</span>,
+  <span class="str">"presignedUrls"</span>: [
+    {
+      <span class="str">"partNumber"</span>: <span class="num">1</span>,
+      <span class="str">"url"</span>: <span class="str">"https://s3.amazonaws.com/..."</span>,
+      <span class="str">"expiresAt"</span>: <span class="str">"2026-07-01T12:15:00Z"</span>
+    }
+    <span class="cm">// ... N entries</span>
+  ],
+  <span class="str">"ttlSeconds"</span>: <span class="num">900</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- POST /uploads/complete -->
+  <div class="endpoint-card">
+    <div class="endpoint-header">
+      <span class="method method-post">POST</span>
+      <span class="path">/uploads/complete</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;">Complete multipart upload</span>
+    </div>
+    <div class="endpoint-desc">
+      <div class="grid-2">
+        <div>
+          <h3 style="margin-bottom:8px;">Request Body</h3>
+          <pre>{
+  <span class="str">"uploadId"</span>: <span class="str">"mpu_01HZQTV..."</span>,
+  <span class="str">"parts"</span>: [
+    { <span class="str">"partNumber"</span>: <span class="num">1</span>, <span class="str">"etag"</span>: <span class="str">"\"d41d8...\"</span> },
+    { <span class="str">"partNumber"</span>: <span class="num">2</span>, <span class="str">"etag"</span>: <span class="str">"\"098f6...\"</span> }
+    <span class="cm">// ordered by partNumber</span>
+  ],
+  <span class="str">"checksumSHA256"</span>: <span class="str">"abc123..."</span> <span class="cm">// optional verify</span>
+}</pre>
+        </div>
+        <div>
+          <h3 style="margin-bottom:8px;">Response 200</h3>
+          <pre>{
+  <span class="str">"uploadId"</span>: <span class="str">"mpu_01HZQTV..."</span>,
+  <span class="str">"fileKey"</span>: <span class="str">"multipart/p-42/..."</span>,
+  <span class="str">"etag"</span>: <span class="str">"\"d41d8cd98f-512\""</span>,
+  <span class="str">"sizeBytes"</span>: <span class="num">2684354560</span>,
+  <span class="str">"completedAt"</span>: <span class="str">"2026-07-01T12:12:34Z"</span>,
+  <span class="str">"status"</span>: <span class="str">"COMPLETED"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GET /uploads/:id/status -->
+  <div class="endpoint-card">
+    <div class="endpoint-header">
+      <span class="method method-get">GET</span>
+      <span class="path">/uploads/{uploadId}/status</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;">Check upload status</span>
+    </div>
+    <div class="endpoint-desc">Returns current status: <code>PENDING</code> | <code>IN_PROGRESS</code> | <code>COMPLETING</code> | <code>COMPLETED</code> | <code>FAILED</code> | <code>ABORTED</code>, parts uploaded so far, and expiry time.</div>
+  </div>
+
+  <!-- DELETE -->
+  <div class="endpoint-card">
+    <div class="endpoint-header">
+      <span class="method" style="background:rgba(255,71,87,0.12);color:var(--danger);">DELETE</span>
+      <span class="path">/uploads/{uploadId}</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;">Abort upload</span>
+    </div>
+    <div class="endpoint-desc">Aborts multipart upload and removes all uploaded parts from S3. Returns 204 No Content.</div>
+  </div>
+
+  <!-- Error codes -->
+  <div class="card">
+    <h3>Error Codes</h3>
+    <table class="table">
+      <thead><tr><th>HTTP</th><th>Code</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>400</td><td>INVALID_PART_COUNT</td><td>partCount exceeds S3 limit of 10,000 or part &lt; 5MB</td></tr>
+        <tr><td>400</td><td>UNSUPPORTED_CONTENT_TYPE</td><td>Content-type not in allowlist</td></tr>
+        <tr><td>400</td><td>CHECKSUM_MISMATCH</td><td>Provided SHA-256 does not match assembled object</td></tr>
+        <tr><td>401</td><td>UNAUTHORIZED</td><td>Missing or invalid auth token</td></tr>
+        <tr><td>404</td><td>UPLOAD_NOT_FOUND</td><td>uploadId not found or already completed</td></tr>
+        <tr><td>410</td><td>UPLOAD_EXPIRED</td><td>Presigned URLs have expired; start a new upload</td></tr>
+        <tr><td>413</td><td>FILE_TOO_LARGE</td><td>File exceeds configured max (default: 10GB)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SECURITY -->
+<div id="security" class="section">
+  <h2>Security Model &amp; Review Checklist</h2>
+
+  <div class="grid-2" style="margin-bottom:20px;">
+    <div class="card">
+      <h3>IAM Role: upload-service</h3>
+      <p style="font-size:12px;">Minimum permissions required by the presign service. No <code>s3:GetObject</code> or <code>s3:DeleteObject</code>.</p>
+      <pre><span class="kw">resource</span> <span class="str">"aws_iam_role_policy"</span> <span class="str">"upload_svc"</span> {
+  <span class="kw">name</span> = <span class="str">"upload-service-min"</span>
+  <span class="kw">role</span> = aws_iam_role.upload_svc.id
+  <span class="kw">policy</span> = jsonencode({
+    <span class="str">Version</span> = <span class="str">"2012-10-17"</span>
+    <span class="str">Statement</span> = [{
+      <span class="str">Effect</span> = <span class="str">"Allow"</span>
+      <span class="str">Action</span> = [
+        <span class="str">"s3:CreateMultipartUpload"</span>,
+        <span class="str">"s3:UploadPart"</span>,
+        <span class="str">"s3:CompleteMultipartUpload"</span>,
+        <span class="str">"s3:AbortMultipartUpload"</span>,
+        <span class="str">"s3:ListMultipartUploadParts"</span>,
+        <span class="str">"s3:ListBucketMultipartUploads"</span>
+      ]
+      <span class="str">Resource</span> = [
+        <span class="str">"arn:aws:s3:::co-uploads-prod"</span>,
+        <span class="str">"arn:aws:s3:::co-uploads-prod/multipart/*"</span>
+      ]
+    }]
+  })
+}</pre>
+    </div>
+
+    <div class="card">
+      <h3>Presigned URL Security Controls</h3>
+      <table class="table">
+        <thead><tr><th>Control</th><th>Setting</th></tr></thead>
+        <tbody>
+          <tr><td>TTL</td><td>900s (15 min) — short to limit exposure window</td></tr>
+          <tr><td>Scope</td><td>Single S3 key + partNumber — no wildcard</td></tr>
+          <tr><td>HTTP method</td><td>PUT only — signed for specific part</td></tr>
+          <tr><td>Content-Length</td><td>Signed — prevents over-uploading</td></tr>
+          <tr><td>x-amz-server-side-encryption</td><td>Enforced via condition in bucket policy</td></tr>
+          <tr><td>Prefix restriction</td><td>Bucket policy denies writes outside <code>multipart/</code></td></tr>
+          <tr><td>VPC endpoint</td><td>Optional: restrict to VPC for internal clients</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Security Review Checklist</h2>
+    <ul class="checklist">
+      <li>
+        <span class="check-icon">🛡️</span>
+        <div><span class="check-title">File size limits enforced</span>Validate <code>fileSizeBytes</code> at initiation. Max 10GB default (configurable). Reject overage before creating multipart upload. S3 bucket policy enforces <code>s3:content-length-range</code> condition on PUT.</div>
+      </li>
+      <li>
+        <span class="check-icon">📋</span>
+        <div><span class="check-title">Content-type allowlist</span>Only permit declared <code>contentType</code> values from an allowlist (e.g., <code>application/zip</code>, <code>application/octet-stream</code>, <code>text/csv</code>). Reject unsupported types at API before generating presigned URLs. Include content-type in presigned URL signature.</div>
+      </li>
+      <li>
+        <span class="check-icon">🦠</span>
+        <div><span class="check-title">Virus scanning hook (post-upload)</span>On <code>CompleteMultipartUpload</code>, emit an S3 event notification to invoke a scan Lambda (ClamAV or commercial AV SDK). Object moves from <code>multipart/quarantine/</code> to <code>multipart/clean/</code> only after passing. Infected files are deleted and an alert is raised.</div>
+      </li>
+      <li>
+        <span class="check-icon">🔐</span>
+        <div><span class="check-title">Encryption at rest</span>SSE-S3 default for all uploads. SSE-KMS available per-upload via <code>"encryption": "SSE-KMS"</code> in request. Bucket policy denies <code>s3:PutObject</code> unless <code>s3:x-amz-server-side-encryption</code> is set. KMS key rotation enabled (annual).</div>
+      </li>
+      <li>
+        <span class="check-icon">🔑</span>
+        <div><span class="check-title">Authentication &amp; authorization</span>All API endpoints require JWT or API Key. Upload token scoped to partner ID and prefix. Presigned URLs are not shareable beyond intended recipient (short TTL + IP binding optional for high-risk flows).</div>
+      </li>
+      <li>
+        <span class="check-icon">🚫</span>
+        <div><span class="check-title">Path traversal prevention</span>Filename sanitized before building S3 key. Key construction uses UUIDs + server-assigned paths. No user-controlled input in S3 key path beyond the final filename segment, which is sanitized.</div>
+      </li>
+      <li>
+        <span class="check-icon">📝</span>
+        <div><span class="check-title">Audit trail</span>Every upload initiation, completion, and abort is logged to CloudWatch Logs with uploadId, partnerId, userAgent, IP address, and timestamp. S3 server access logging enabled.</div>
+      </li>
+      <li>
+        <span class="check-icon">🔒</span>
+        <div><span class="check-title">Bucket hardening</span>Block all public access. No bucket ACLs. S3 Object Ownership = BucketOwnerEnforced. Deny HTTP (require HTTPS). Enforce TLS 1.2+ via bucket policy condition <code>aws:SecureTransport</code>.</div>
+      </li>
+      <li>
+        <span class="check-icon">🌐</span>
+        <div><span class="check-title">Network controls</span>API sits behind WAF with rate limiting (100 req/min per IP). For internal VDI clients: restrict S3 access to VPC endpoint. For external partners: IP allowlisting where feasible.</div>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<!-- TERRAFORM -->
+<div id="terraform" class="section">
+  <h2>Terraform Examples</h2>
+
+  <div class="inner-tabs">
+    <button class="inner-tab active" onclick="showSub('tf','bucket')">S3 Bucket</button>
+    <button class="inner-tab" onclick="showSub('tf','iam')">IAM / STS</button>
+    <button class="inner-tab" onclick="showSub('tf','lambda')">Cleanup Lambda</button>
+    <button class="inner-tab" onclick="showSub('tf','client')">Client Snippet</button>
+  </div>
+
+  <div id="tf-bucket" class="sub-section active">
+    <pre><span class="cm"># S3 Bucket with lifecycle + encryption + hardening</span>
+
+<span class="kw">resource</span> <span class="str">"aws_s3_bucket"</span> <span class="str">"uploads"</span> {
+  bucket = <span class="str">"co-uploads-${var.env}"</span>
+  tags   = local.common_tags
+}
+
+<span class="kw">resource</span> <span class="str">"aws_s3_bucket_server_side_encryption_configuration"</span> <span class="str">"uploads"</span> {
+  bucket = aws_s3_bucket.uploads.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = <span class="str">"aws:kms"</span>
+      kms_master_key_id = aws_kms_key.uploads.arn
+    }
+    bucket_key_enabled = <span class="kw">true</span>
+  }
+}
+
+<span class="kw">resource</span> <span class="str">"aws_s3_bucket_public_access_block"</span> <span class="str">"uploads"</span> {
+  bucket                  = aws_s3_bucket.uploads.id
+  block_public_acls       = <span class="kw">true</span>
+  block_public_policy     = <span class="kw">true</span>
+  ignore_public_acls      = <span class="kw">true</span>
+  restrict_public_buckets = <span class="kw">true</span>
+}
+
+<span class="kw">resource</span> <span class="str">"aws_s3_bucket_lifecycle_configuration"</span> <span class="str">"uploads"</span> {
+  bucket = aws_s3_bucket.uploads.id
+  rule {
+    id     = <span class="str">"abort-incomplete-multipart"</span>
+    status = <span class="str">"Enabled"</span>
+    filter { prefix = <span class="str">"multipart/"</span> }
+    abort_incomplete_multipart_upload { days_after_initiation = <span class="num">1</span> }
+  }
+  rule {
+    id     = <span class="str">"transition-to-glacier"</span>
+    status = <span class="str">"Enabled"</span>
+    filter { prefix = <span class="str">"multipart/clean/"</span> }
+    transition { days = <span class="num">90</span>; storage_class = <span class="str">"GLACIER"</span> }
+  }
+}
+
+<span class="kw">resource</span> <span class="str">"aws_s3_bucket_policy"</span> <span class="str">"uploads"</span> {
+  bucket = aws_s3_bucket.uploads.id
+  policy = jsonencode({
+    <span class="str">Version</span> = <span class="str">"2012-10-17"</span>
+    <span class="str">Statement</span> = [
+      {
+        <span class="cm"># Enforce TLS</span>
+        <span class="str">Sid</span> = <span class="str">"DenyHTTP"</span>, <span class="str">Effect</span> = <span class="str">"Deny"</span>
+        <span class="str">Principal</span> = <span class="str">"*"</span>
+        <span class="str">Action</span> = <span class="str">"s3:*"</span>
+        <span class="str">Resource</span> = [<span class="str">"${aws_s3_bucket.uploads.arn}"</span>, <span class="str">"${aws_s3_bucket.uploads.arn}/*"</span>]
+        <span class="str">Condition</span> = { <span class="str">Bool</span> = { <span class="str">"aws:SecureTransport"</span> = <span class="str">"false"</span> } }
+      },
+      {
+        <span class="cm"># Enforce encryption on PUT</span>
+        <span class="str">Sid</span> = <span class="str">"DenyUnencryptedPut"</span>, <span class="str">Effect</span> = <span class="str">"Deny"</span>
+        <span class="str">Principal</span> = <span class="str">"*"</span>
+        <span class="str">Action</span> = <span class="str">"s3:PutObject"</span>
+        <span class="str">Resource</span> = <span class="str">"${aws_s3_bucket.uploads.arn}/*"</span>
+        <span class="str">Condition</span> = { <span class="str">StringNotLike</span> = {
+          <span class="str">"s3:x-amz-server-side-encryption"</span> = [<span class="str">"AES256"</span>, <span class="str">"aws:kms"</span>]
+        }}
+      },
+      {
+        <span class="cm"># Restrict writes to multipart/ prefix only</span>
+        <span class="str">Sid</span> = <span class="str">"RestrictPrefix"</span>, <span class="str">Effect</span> = <span class="str">"Deny"</span>
+        <span class="str">Principal</span> = { <span class="str">AWS</span> = aws_iam_role.upload_svc.arn }
+        <span class="str">Action</span> = <span class="str">"s3:PutObject"</span>
+        <span class="str">NotResource</span> = <span class="str">"${aws_s3_bucket.uploads.arn}/multipart/*"</span>
+      }
+    ]
+  })
+}</pre>
+  </div>
+
+  <div id="tf-iam" class="sub-section">
+    <pre><span class="cm"># IAM Role for upload service with least-privilege policy</span>
+
+<span class="kw">resource</span> <span class="str">"aws_iam_role"</span> <span class="str">"upload_svc"</span> {
+  name               = <span class="str">"upload-service-${var.env}"</span>
+  assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
+}
+
+<span class="kw">data</span> <span class="str">"aws_iam_policy_document"</span> <span class="str">"upload_svc"</span> {
+  statement {
+    effect = <span class="str">"Allow"</span>
+    actions = [
+      <span class="str">"s3:CreateMultipartUpload"</span>,
+      <span class="str">"s3:UploadPart"</span>,
+      <span class="str">"s3:CompleteMultipartUpload"</span>,
+      <span class="str">"s3:AbortMultipartUpload"</span>,
+      <span class="str">"s3:ListMultipartUploadParts"</span>,
+      <span class="str">"s3:ListBucketMultipartUploads"</span>,
+    ]
+    resources = [
+      aws_s3_bucket.uploads.arn,
+      <span class="str">"${aws_s3_bucket.uploads.arn}/multipart/*"</span>,
+    ]
+  }
+  statement {
+    effect    = <span class="str">"Allow"</span>
+    actions   = [<span class="str">"kms:GenerateDataKey"</span>, <span class="str">"kms:Decrypt"</span>]
+    resources = [aws_kms_key.uploads.arn]
+  }
+}
+
+<span class="kw">resource</span> <span class="str">"aws_iam_role_policy"</span> <span class="str">"upload_svc"</span> {
+  role   = aws_iam_role.upload_svc.id
+  policy = data.aws_iam_policy_document.upload_svc.json
+}
+
+<span class="cm"># KMS key for upload encryption</span>
+<span class="kw">resource</span> <span class="str">"aws_kms_key"</span> <span class="str">"uploads"</span> {
+  description             = <span class="str">"co-uploads-${var.env} CMK"</span>
+  enable_key_rotation     = <span class="kw">true</span>
+  deletion_window_in_days = <span class="num">14</span>
+}</pre>
+  </div>
+
+  <div id="tf-lambda" class="sub-section">
+    <pre><span class="cm"># Cleanup Lambda + EventBridge schedule</span>
+
+<span class="kw">resource</span> <span class="str">"aws_lambda_function"</span> <span class="str">"multipart_cleanup"</span> {
+  function_name = <span class="str">"multipart-cleanup-${var.env}"</span>
+  role          = aws_iam_role.cleanup_lambda.arn
+  handler       = <span class="str">"handler.main"</span>
+  runtime       = <span class="str">"python3.12"</span>
+  timeout       = <span class="num">300</span>
+  filename      = data.archive_file.cleanup.output_path
+  environment {
+    variables = {
+      BUCKET_NAME    = aws_s3_bucket.uploads.bucket
+      MAX_AGE_HOURS  = <span class="str">"24"</span>
+      DD_API_KEY_SSM = aws_ssm_parameter.dd_key.name
+    }
+  }
+}
+
+<span class="kw">resource</span> <span class="str">"aws_cloudwatch_event_rule"</span> <span class="str">"cleanup_schedule"</span> {
+  name                = <span class="str">"multipart-cleanup-daily"</span>
+  schedule_expression = <span class="str">"cron(0 3 * * ? *)"</span>  <span class="cm"># 03:00 UTC daily</span>
+}
+
+<span class="kw">resource</span> <span class="str">"aws_cloudwatch_event_target"</span> <span class="str">"cleanup"</span> {
+  rule = aws_cloudwatch_event_rule.cleanup_schedule.name
+  arn  = aws_lambda_function.multipart_cleanup.arn
+}
+
+<span class="cm"># Cleanup Lambda Python handler (simplified)</span>
+<span class="cm">"""
+import boto3, os, logging
+from datetime import datetime, timezone, timedelta
+
+def main(event, context):
+    s3 = boto3.client('s3')
+    bucket = os.environ['BUCKET_NAME']
+    max_age = timedelta(hours=int(os.environ.get('MAX_AGE_HOURS', 24)))
+    now = datetime.now(timezone.utc)
+    
+    paginator = s3.get_paginator('list_multipart_uploads')
+    for page in paginator.paginate(Bucket=bucket, Prefix='multipart/'):
+        for upload in page.get('Uploads', []):
+            age = now - upload['Initiated']
+            if age > max_age:
+                s3.abort_multipart_upload(
+                    Bucket=bucket,
+                    Key=upload['Key'],
+                    UploadId=upload['UploadId']
+                )
+                logging.info(f"Aborted stale upload {upload['UploadId']}")
+"""</span></pre>
+  </div>
+
+  <div id="tf-client" class="sub-section">
+    <pre><span class="cm">// Node.js client — multipart presigned upload</span>
+
+<span class="kw">import</span> axios <span class="kw">from</span> <span class="str">'axios'</span>;
+<span class="kw">import</span> { createReadStream, statSync } <span class="kw">from</span> <span class="str">'fs'</span>;
+
+<span class="kw">const</span> PART_SIZE = <span class="num">5</span> * <span class="num">1024</span> * <span class="num">1024</span>; <span class="cm">// 5MB</span>
+<span class="kw">const</span> API_BASE = <span class="str">'https://api.example.com'</span>;
+
+<span class="kw">async function</span> <span class="fn">uploadFile</span>(filePath, token) {
+  <span class="kw">const</span> fileSize = statSync(filePath).size;
+  <span class="kw">const</span> partCount = Math.ceil(fileSize / PART_SIZE);
+
+  <span class="cm">// 1. Initiate upload</span>
+  <span class="kw">const</span> { data: session } = <span class="kw">await</span> axios.post(<span class="str">`${API_BASE}/uploads`</span>, {
+    filename: path.basename(filePath),
+    contentType: <span class="str">'application/octet-stream'</span>,
+    fileSizeBytes: fileSize,
+    partCount,
+    encryption: <span class="str">'SSE-KMS'</span>,
+  }, { headers: { Authorization: <span class="str">`Bearer ${token}`</span> } });
+
+  <span class="kw">const</span> { uploadId, presignedUrls } = session;
+  <span class="kw">const</span> parts = [];
+
+  <span class="cm">// 2. Upload parts (with retry)</span>
+  <span class="kw">await</span> Promise.all(presignedUrls.map(<span class="kw">async</span> ({ partNumber, url }) => {
+    <span class="kw">const</span> start = (partNumber - <span class="num">1</span>) * PART_SIZE;
+    <span class="kw">const</span> end = Math.min(start + PART_SIZE, fileSize);
+    <span class="kw">const</span> chunk = <span class="fn">readChunk</span>(filePath, start, end);
+
+    <span class="kw">const</span> res = <span class="kw">await</span> <span class="fn">withRetry</span>(() => axios.put(url, chunk, {
+      headers: {
+        <span class="str">'Content-Type'</span>: <span class="str">'application/octet-stream'</span>,
+        <span class="str">'Content-Length'</span>: chunk.length,
+      }
+    }));
+    parts.push({ partNumber, etag: res.headers[<span class="str">'etag'</span>] });
+  }));
+
+  <span class="cm">// 3. Complete upload</span>
+  <span class="kw">const</span> { data: result } = <span class="kw">await</span> axios.post(<span class="str">`${API_BASE}/uploads/complete`</span>, {
+    uploadId,
+    parts: parts.sort((a, b) => a.partNumber - b.partNumber),
+  }, { headers: { Authorization: <span class="str">`Bearer ${token}`</span> } });
+
+  <span class="kw">return</span> result; <span class="cm">// { fileKey, etag, sizeBytes, status }</span>
+}
+
+<span class="kw">async function</span> <span class="fn">withRetry</span>(fn, maxAttempts = <span class="num">4</span>) {
+  <span class="kw">const</span> delays = [<span class="num">1000</span>, <span class="num">3000</span>, <span class="num">10000</span>, <span class="num">30000</span>];
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i &lt; maxAttempts; i++) {
+    <span class="kw">try</span> { <span class="kw">return await</span> fn(); }
+    <span class="kw">catch</span> (err) {
+      <span class="kw">if</span> (i === maxAttempts - <span class="num">1</span>) <span class="kw">throw</span> err;
+      <span class="kw">await new</span> Promise(r => setTimeout(r, delays[i]));
+    }
+  }
+}</pre>
+  </div>
+</div>
+
+<!-- OPS -->
+<div id="ops" class="section">
+  <h2>Operational Controls</h2>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>CloudWatch Metrics</h3>
+      <table class="table">
+        <thead><tr><th>Metric</th><th>Alarm threshold</th></tr></thead>
+        <tbody>
+          <tr><td>upload.initiated.count</td><td>Spike &gt;500/min → alert</td></tr>
+          <tr><td>upload.completed.count</td><td>Drop &gt;80% vs baseline → alert</td></tr>
+          <tr><td>upload.aborted.count</td><td>&gt;50/hr → investigate</td></tr>
+          <tr><td>upload.part.error.rate</td><td>&gt;5% → alert</td></tr>
+          <tr><td>upload.duration.p99</td><td>&gt;30min for &lt;1GB → alert</td></tr>
+          <tr><td>stale.cleanup.count</td><td>Log count per daily run</td></tr>
+          <tr><td>scan.infected.count</td><td>Any &gt; 0 → PagerDuty critical</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Datadog Events</h3>
+      <table class="table">
+        <thead><tr><th>Event</th><th>Tags</th></tr></thead>
+        <tbody>
+          <tr><td>upload.completed</td><td>partnerId, uploadId, sizeBytes, env</td></tr>
+          <tr><td>upload.aborted</td><td>partnerId, uploadId, reason, env</td></tr>
+          <tr><td>upload.stale_cleaned</td><td>count, bucket, env</td></tr>
+          <tr><td>upload.scan.passed</td><td>uploadId, scanner, env</td></tr>
+          <tr><td>upload.scan.failed</td><td>uploadId, threat_name, severity</td></tr>
+          <tr><td>upload.part.retry</td><td>uploadId, partNumber, attempt</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Runbook: Stale Upload Cleanup (Manual)</h3>
+    <pre><span class="cm"># List all in-progress multipart uploads older than 24h</span>
+<span class="kw">aws</span> s3api list-multipart-uploads \
+  --bucket co-uploads-prod \
+  --prefix <span class="str">"multipart/"</span> \
+  --query <span class="str">"Uploads[?Initiated<='2026-06-30T00:00:00Z']"</span>
+
+<span class="cm"># Abort a specific upload</span>
+<span class="kw">aws</span> s3api abort-multipart-upload \
+  --bucket co-uploads-prod \
+  --key <span class="str">"multipart/partner-42/2026-06-29/abc123/file.zip"</span> \
+  --upload-id <span class="str">"VXBsb2FkSWQ..."</span>
+
+<span class="cm"># Trigger cleanup Lambda manually</span>
+<span class="kw">aws</span> lambda invoke \
+  --function-name multipart-cleanup-prod \
+  --payload <span class="str">'{"manual": true}'</span> \
+  /tmp/response.json</pre>
+  </div>
+
+  <div class="note">
+    <strong>Capacity Planning Note:</strong> At 5MB parts and 10K max parts per upload, the theoretical max object size is ~50GB. Default API limit is 10GB. For files over 50GB, consider chunking or using S3 Transfer Acceleration. Each concurrent upload holds temporary storage in S3 until completed or aborted — monitor bucket size during high-volume periods.
+  </div>
+</div>
+
+<script>
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+
+function showSub(group, id) {
+  const section = event.target.closest('.section');
+  section.querySelectorAll('.sub-section').forEach(s => s.classList.remove('active'));
+  section.querySelectorAll('.inner-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(`${group}-${id}`).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

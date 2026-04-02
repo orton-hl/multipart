@@ -1,0 +1,442 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); }
+.shell { display: flex; gap: 0; min-height: 600px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); overflow: hidden; background: var(--color-background-primary); }
+.sidebar { width: 200px; flex-shrink: 0; border-right: 0.5px solid var(--color-border-tertiary); background: var(--color-background-secondary); padding: 16px 0; display: flex; flex-direction: column; gap: 2px; }
+.sidebar-title { font-size: 11px; color: var(--color-text-tertiary); padding: 0 16px 8px; letter-spacing: 0.05em; text-transform: uppercase; }
+.nav-item { padding: 8px 16px; font-size: 13px; cursor: pointer; color: var(--color-text-secondary); border-radius: 0; transition: background 0.1s; display: flex; align-items: center; gap: 8px; }
+.nav-item:hover { background: var(--color-background-primary); color: var(--color-text-primary); }
+.nav-item.active { background: var(--color-background-primary); color: var(--color-text-primary); font-weight: 500; border-right: 2px solid #378ADD; }
+.nav-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-border-secondary); flex-shrink: 0; }
+.nav-dot.blue { background: #378ADD; }
+.nav-dot.amber { background: #EF9F27; }
+.nav-dot.green { background: #639922; }
+.nav-dot.red { background: #E24B4A; }
+.main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.topbar { padding: 14px 20px; border-bottom: 0.5px solid var(--color-border-tertiary); display: flex; align-items: center; justify-content: space-between; }
+.topbar-title { font-size: 14px; font-weight: 500; }
+.topbar-sub { font-size: 12px; color: var(--color-text-tertiary); margin-top: 2px; }
+.btn { font-size: 12px; padding: 6px 14px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: transparent; color: var(--color-text-primary); cursor: pointer; font-family: var(--font-sans); }
+.btn:hover { background: var(--color-background-secondary); }
+.btn-primary { background: #185FA5; color: #E6F1FB; border-color: #185FA5; }
+.btn-primary:hover { background: #0C447C; }
+.content { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.screen { display: none; flex-direction: column; gap: 16px; }
+.screen.active { display: flex; }
+.card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 16px 20px; }
+.label { font-size: 11px; color: var(--color-text-tertiary); margin-bottom: 4px; letter-spacing: 0.04em; text-transform: uppercase; }
+.value { font-size: 14px; color: var(--color-text-primary); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+.stat { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 12px 14px; }
+.stat-val { font-size: 20px; font-weight: 500; color: var(--color-text-primary); }
+.stat-label { font-size: 11px; color: var(--color-text-tertiary); margin-top: 2px; }
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 8px; border-radius: 20px; font-weight: 500; }
+.badge-blue { background: #E6F1FB; color: #185FA5; }
+.badge-green { background: #EAF3DE; color: #3B6D11; }
+.badge-amber { background: #FAEEDA; color: #854F0B; }
+.badge-red { background: #FCEBEB; color: #A32D2D; }
+.badge-gray { background: var(--color-background-secondary); color: var(--color-text-secondary); }
+.upload-zone { border: 1.5px dashed var(--color-border-secondary); border-radius: var(--border-radius-lg); padding: 40px 20px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.upload-zone:hover { border-color: #378ADD; background: #E6F1FB22; }
+.upload-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--color-background-secondary); display: flex; align-items: center; justify-content: center; }
+.upload-icon svg { width: 20px; height: 20px; color: var(--color-text-secondary); }
+.part-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 12px; }
+.part-row:last-child { border-bottom: none; }
+.part-num { width: 28px; height: 28px; border-radius: var(--border-radius-md); background: var(--color-background-secondary); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; color: var(--color-text-secondary); flex-shrink: 0; }
+.part-bar-wrap { flex: 1; height: 4px; background: var(--color-background-secondary); border-radius: 2px; overflow: hidden; }
+.part-bar { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.part-bar.done { background: #639922; }
+.part-bar.active { background: #378ADD; }
+.part-bar.pending { background: var(--color-border-tertiary); width: 0%; }
+.part-bar.failed { background: #E24B4A; }
+.part-status { width: 52px; text-align: right; font-size: 11px; }
+.progress-ring-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.progress-label { position: absolute; font-size: 18px; font-weight: 500; color: var(--color-text-primary); }
+.progress-sub { position: absolute; font-size: 10px; color: var(--color-text-tertiary); top: calc(50% + 14px); }
+.divider { height: 0.5px; background: var(--color-border-tertiary); margin: 4px 0; }
+.row { display: flex; align-items: center; gap: 10px; }
+.row-spread { display: flex; align-items: center; justify-content: space-between; }
+.checklist-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 13px; }
+.checklist-item:last-child { border-bottom: none; }
+.check-circle { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.check-done { background: #EAF3DE; }
+.check-pending { background: var(--color-background-secondary); border: 0.5px solid var(--color-border-secondary); }
+.check-warn { background: #FAEEDA; }
+.history-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 12px; }
+.history-row:last-child { border-bottom: none; }
+.file-icon { width: 32px; height: 32px; border-radius: var(--border-radius-md); background: var(--color-background-secondary); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+.meta { flex: 1; }
+.meta-name { font-size: 13px; color: var(--color-text-primary); font-weight: 500; }
+.meta-sub { font-size: 11px; color: var(--color-text-tertiary); margin-top: 1px; }
+.tag-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.security-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 0.5px solid var(--color-border-tertiary); }
+.security-row:last-child { border-bottom: none; }
+.sec-icon { width: 28px; height: 28px; border-radius: var(--border-radius-md); display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+.sec-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+.sec-desc { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; line-height: 1.5; }
+.tooltip-box { background: var(--color-background-secondary); border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); padding: 8px 12px; font-size: 11px; color: var(--color-text-secondary); line-height: 1.5; }
+.step-indicator { display: flex; align-items: center; gap: 0; margin-bottom: 4px; }
+.step-node { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; flex-shrink: 0; }
+.step-line { flex: 1; height: 1px; }
+.step-done { background: #EAF3DE; color: #3B6D11; }
+.step-active { background: #E6F1FB; color: #185FA5; border: 1.5px solid #185FA5; }
+.step-pending { background: var(--color-background-secondary); color: var(--color-text-tertiary); }
+.step-line-done { background: #639922; }
+.step-line-pending { background: var(--color-border-tertiary); }
+.mono { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); background: var(--color-background-secondary); padding: 2px 6px; border-radius: 4px; }
+</style>
+
+<div style="padding: 1rem 0;">
+<div class="shell">
+  <div class="sidebar">
+    <div class="sidebar-title">Upload Manager</div>
+    <div class="nav-item active" onclick="showScreen('new')" id="nav-new"><div class="nav-dot blue"></div>New upload</div>
+    <div class="nav-item" onclick="showScreen('progress')" id="nav-progress"><div class="nav-dot amber"></div>In progress</div>
+    <div class="nav-item" onclick="showScreen('history')" id="nav-history"><div class="nav-dot green"></div>History</div>
+    <div class="nav-item" onclick="showScreen('security')" id="nav-security"><div class="nav-dot"></div>Security</div>
+    <div style="flex: 1;"></div>
+    <div style="padding: 12px 16px; border-top: 0.5px solid var(--color-border-tertiary);">
+      <div class="stat">
+        <div class="stat-val">4.2 TB</div>
+        <div class="stat-label">uploaded this month</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title" id="screen-title">New upload</div>
+        <div class="topbar-sub" id="screen-sub">Direct-to-S3 via presigned multipart</div>
+      </div>
+      <div class="row" style="gap: 8px;">
+        <span class="badge badge-gray">DIS Sprint 2.2</span>
+        <button class="btn btn-primary" onclick="showScreen('progress')">Start upload ↗</button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- NEW UPLOAD SCREEN -->
+      <div class="screen active" id="screen-new">
+        <div class="step-indicator">
+          <div class="step-node step-active">1</div>
+          <div class="step-line step-pending" style="flex:1"></div>
+          <div class="step-node step-pending">2</div>
+          <div class="step-line step-pending" style="flex:1"></div>
+          <div class="step-node step-pending">3</div>
+          <div class="step-line step-pending" style="flex:1"></div>
+          <div class="step-node step-pending">4</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-tertiary); margin-top: 4px;">
+          <span>Configure</span><span>Presign</span><span>Upload parts</span><span>Complete</span>
+        </div>
+
+        <div class="upload-zone" onclick="showScreen('progress')">
+          <div class="upload-icon">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M10 13V4m0 0L7 7m3-3l3 3" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M3 14v1a3 3 0 003 3h8a3 3 0 003-3v-1" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div style="font-size: 14px; font-weight: 500; color: var(--color-text-primary);">Drop files or click to browse</div>
+          <div style="font-size: 12px; color: var(--color-text-tertiary);">Max 10 GB · ZIP, CSV, OctetStream</div>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="label">Encryption</div>
+            <select style="width: 100%; margin-top: 6px; font-size: 13px;">
+              <option>SSE-KMS (recommended)</option>
+              <option>SSE-S3</option>
+            </select>
+          </div>
+          <div class="card">
+            <div class="label">Partner / prefix</div>
+            <input type="text" placeholder="partner-id" value="partner-42" style="width: 100%; margin-top: 6px; font-size: 13px;" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="label" style="margin-bottom: 10px;">Upload settings</div>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="row-spread">
+              <span style="font-size: 13px; color: var(--color-text-secondary);">Part size</span>
+              <span style="font-size: 13px; font-weight: 500;" id="part-size-val">5 MB</span>
+            </div>
+            <input type="range" min="5" max="100" step="5" value="5" id="part-size-slider" style="width: 100%;" oninput="document.getElementById('part-size-val').textContent = this.value + ' MB'; updatePartCount(this.value);" />
+            <div class="row-spread" style="font-size: 11px; color: var(--color-text-tertiary);">
+              <span>Concurrent parts</span>
+              <span id="part-count-val">~204 parts for 1 GB</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="tooltip-box">
+          Parts are uploaded directly to S3 — your backend only generates presigned URLs and assembles the final object. The client never touches your servers during the transfer.
+        </div>
+      </div>
+
+      <!-- IN PROGRESS SCREEN -->
+      <div class="screen" id="screen-progress">
+        <div class="step-indicator">
+          <div class="step-node step-done">✓</div>
+          <div class="step-line step-done" style="flex:1;background:#639922;"></div>
+          <div class="step-node step-done">✓</div>
+          <div class="step-line step-done" style="flex:1;background:#639922;"></div>
+          <div class="step-node step-active">3</div>
+          <div class="step-line step-pending" style="flex:1"></div>
+          <div class="step-node step-pending">4</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-tertiary); margin-top: 4px;">
+          <span style="color:#3B6D11;">Configure</span><span style="color:#3B6D11;">Presign</span><span style="color:#185FA5;font-weight:500;">Upload parts</span><span>Complete</span>
+        </div>
+
+        <div class="card">
+          <div class="row-spread" style="margin-bottom:14px;">
+            <div>
+              <div style="font-size:14px;font-weight:500;">data-export-2026.zip</div>
+              <div style="font-size:12px;color:var(--color-text-tertiary);margin-top:2px;">2.5 GB · 512 parts · partner-42</div>
+            </div>
+            <span class="badge badge-blue">Uploading</span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:20px;">
+            <div class="progress-ring-wrap">
+              <svg width="72" height="72" viewBox="0 0 72 72">
+                <circle cx="36" cy="36" r="28" fill="none" stroke="var(--color-background-secondary)" stroke-width="6"/>
+                <circle cx="36" cy="36" r="28" fill="none" stroke="#378ADD" stroke-width="6" stroke-dasharray="175.9" stroke-dashoffset="52" stroke-linecap="round" transform="rotate(-90 36 36)"/>
+              </svg>
+              <span class="progress-label">70%</span>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+              <div class="grid3">
+                <div class="stat"><div class="stat-val">358</div><div class="stat-label">parts done</div></div>
+                <div class="stat"><div class="stat-val">8</div><div class="stat-label">active</div></div>
+                <div class="stat"><div class="stat-val">2</div><div class="stat-label">retrying</div></div>
+              </div>
+              <div class="row-spread" style="font-size:12px;color:var(--color-text-secondary);">
+                <span>1.75 GB / 2.5 GB</span>
+                <span>~4 min remaining · 12.4 MB/s</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="label" style="margin-bottom:10px;">Part detail</div>
+          <div class="part-row">
+            <div class="part-num" style="background:#EAF3DE;color:#3B6D11;">✓</div>
+            <div style="flex:1;font-size:12px;color:var(--color-text-secondary);">Parts 1–350</div>
+            <div class="part-bar-wrap"><div class="part-bar done" style="width:100%"></div></div>
+            <div class="part-status" style="color:#3B6D11;">done</div>
+          </div>
+          <div class="part-row">
+            <div class="part-num" style="background:#E6F1FB;color:#185FA5;">351</div>
+            <div style="flex:1;font-size:12px;color:var(--color-text-secondary);">5.0 MB</div>
+            <div class="part-bar-wrap"><div class="part-bar active" style="width:74%"></div></div>
+            <div class="part-status" style="color:#185FA5;">74%</div>
+          </div>
+          <div class="part-row">
+            <div class="part-num" style="background:#E6F1FB;color:#185FA5;">352</div>
+            <div style="flex:1;font-size:12px;color:var(--color-text-secondary);">5.0 MB</div>
+            <div class="part-bar-wrap"><div class="part-bar active" style="width:41%"></div></div>
+            <div class="part-status" style="color:#185FA5;">41%</div>
+          </div>
+          <div class="part-row">
+            <div class="part-num" style="background:#FAEEDA;color:#854F0B;">353</div>
+            <div style="flex:1;font-size:12px;color:var(--color-text-secondary);">5.0 MB</div>
+            <div class="part-bar-wrap"><div class="part-bar failed" style="width:100%"></div></div>
+            <div class="part-status" style="color:#E24B4A;">retry 2</div>
+          </div>
+          <div class="part-row">
+            <div class="part-num">354</div>
+            <div style="flex:1;font-size:12px;color:var(--color-text-secondary);">5.0 MB</div>
+            <div class="part-bar-wrap"><div class="part-bar pending" style="width:0%"></div></div>
+            <div class="part-status" style="color:var(--color-text-tertiary);">queued</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;">
+          <button class="btn" style="flex:1;" onclick="showScreen('history')">Pause</button>
+          <button class="btn" style="color:#A32D2D;border-color:#F7C1C1;">Abort upload</button>
+        </div>
+      </div>
+
+      <!-- HISTORY SCREEN -->
+      <div class="screen" id="screen-history">
+        <div class="grid4">
+          <div class="stat"><div class="stat-val">47</div><div class="stat-label">completed</div></div>
+          <div class="stat"><div class="stat-val">2</div><div class="stat-label">aborted</div></div>
+          <div class="stat"><div class="stat-val" style="color:#3B6D11;">99.2%</div><div class="stat-label">success rate</div></div>
+          <div class="stat"><div class="stat-val">1.8 GB</div><div class="stat-label">avg file size</div></div>
+        </div>
+
+        <div class="card">
+          <div class="label" style="margin-bottom:12px;">Recent uploads</div>
+          <div class="history-row">
+            <div class="file-icon" style="background:#EAF3DE;">📦</div>
+            <div class="meta">
+              <div class="meta-name">data-export-2026-06.zip</div>
+              <div class="meta-sub">2.5 GB · 512 parts · partner-42 · 2 min ago</div>
+            </div>
+            <span class="badge badge-green">Completed</span>
+          </div>
+          <div class="history-row">
+            <div class="file-icon" style="background:#E6F1FB;">📊</div>
+            <div class="meta">
+              <div class="meta-name">analytics-dump.csv</div>
+              <div class="meta-sub">840 MB · 168 parts · partner-07 · 1 hr ago</div>
+            </div>
+            <span class="badge badge-green">Completed</span>
+          </div>
+          <div class="history-row">
+            <div class="file-icon" style="background:#FAEEDA;">📁</div>
+            <div class="meta">
+              <div class="meta-name">vdi-snapshot-backup.bin</div>
+              <div class="meta-sub">6.1 GB · 1248 parts · vdi-01 · 3 hr ago</div>
+            </div>
+            <span class="badge badge-green">Completed</span>
+          </div>
+          <div class="history-row">
+            <div class="file-icon" style="background:#FCEBEB;">⚠️</div>
+            <div class="meta">
+              <div class="meta-name">report-malformed.zip</div>
+              <div class="meta-sub">1.2 GB · partner-03 · yesterday</div>
+            </div>
+            <span class="badge badge-red">Aborted</span>
+          </div>
+          <div class="history-row">
+            <div class="file-icon" style="background:#EAF3DE;">📦</div>
+            <div class="meta">
+              <div class="meta-name">partner-feed-2026-Q1.zip</div>
+              <div class="meta-sub">3.8 GB · 776 parts · partner-11 · 2 days ago</div>
+            </div>
+            <span class="badge badge-green">Completed</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="label" style="margin-bottom:8px;">Upload ID lookup</div>
+          <div class="row" style="gap:8px;">
+            <input type="text" placeholder="mpu_01HZQTV..." style="flex:1;font-family:var(--font-mono);font-size:12px;" />
+            <button class="btn">Lookup</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECURITY SCREEN -->
+      <div class="screen" id="screen-security">
+        <div class="grid2">
+          <div class="card">
+            <div class="label" style="margin-bottom:10px;">Active controls</div>
+            <div class="security-row">
+              <div class="sec-icon" style="background:#EAF3DE;">🔐</div>
+              <div><div class="sec-title">SSE-KMS encryption</div><div class="sec-desc">All parts encrypted via CMK. Enforced by bucket policy.</div></div>
+            </div>
+            <div class="security-row">
+              <div class="sec-icon" style="background:#E6F1FB;">⏱</div>
+              <div><div class="sec-title">15 min URL TTL</div><div class="sec-desc">Presigned URLs expire after 900 s. Refresh endpoint available.</div></div>
+            </div>
+            <div class="security-row">
+              <div class="sec-icon" style="background:#EAF3DE;">🛡</div>
+              <div><div class="sec-title">Prefix restriction</div><div class="sec-desc">Writes scoped to <span class="mono">multipart/</span> only via IAM condition.</div></div>
+            </div>
+            <div class="security-row">
+              <div class="sec-icon" style="background:#FAEEDA;">🦠</div>
+              <div><div class="sec-title">Virus scan hook</div><div class="sec-desc">Lambda triggered on completion. File quarantined until cleared.</div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="label" style="margin-bottom:10px;">Pre-upload checklist</div>
+            <div class="checklist-item">
+              <div class="check-circle check-done">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="#3B6D11" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+              </div>
+              <span style="font-size:13px;color:var(--color-text-secondary);">File size within 10 GB limit</span>
+            </div>
+            <div class="checklist-item">
+              <div class="check-circle check-done">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="#3B6D11" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+              </div>
+              <span style="font-size:13px;color:var(--color-text-secondary);">Content-type in allowlist</span>
+            </div>
+            <div class="checklist-item">
+              <div class="check-circle check-done">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="#3B6D11" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+              </div>
+              <span style="font-size:13px;color:var(--color-text-secondary);">Partner ID authenticated (JWT)</span>
+            </div>
+            <div class="checklist-item">
+              <div class="check-circle check-done">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2.5 2.5L8 3" stroke="#3B6D11" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+              </div>
+              <span style="font-size:13px;color:var(--color-text-secondary);">Part count ≤ 10,000 (S3 limit)</span>
+            </div>
+            <div class="checklist-item">
+              <div class="check-circle check-warn">
+                <svg width="10" height="10" viewBox="0 0 10 10"><text x="3" y="9" font-size="9" fill="#854F0B">!</text></svg>
+              </div>
+              <span style="font-size:13px;color:var(--color-text-secondary);">SHA-256 checksum (optional)</span>
+            </div>
+            <div class="checklist-item">
+              <div class="check-circle check-pending"></div>
+              <span style="font-size:13px;color:var(--color-text-tertiary);">Virus scan result pending</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="label" style="margin-bottom:10px;">Cleanup status</div>
+          <div class="row-spread" style="font-size:13px;">
+            <span style="color:var(--color-text-secondary);">Last cleanup run</span>
+            <span class="badge badge-green">Today 03:00 UTC · 0 stale uploads</span>
+          </div>
+          <div class="divider" style="margin:10px 0;"></div>
+          <div class="row-spread" style="font-size:13px;">
+            <span style="color:var(--color-text-secondary);">S3 lifecycle rule</span>
+            <span style="color:var(--color-text-primary);">AbortIncomplete after 1 day</span>
+          </div>
+          <div class="divider" style="margin:10px 0;"></div>
+          <div class="row-spread" style="font-size:13px;">
+            <span style="color:var(--color-text-secondary);">Public access</span>
+            <span class="badge badge-green">All blocked</span>
+          </div>
+          <div class="divider" style="margin:10px 0;"></div>
+          <div class="row-spread" style="font-size:13px;">
+            <span style="color:var(--color-text-secondary);">TLS enforcement</span>
+            <span class="badge badge-green">aws:SecureTransport enforced</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const screens = ['new','progress','history','security'];
+const titles = { new:'New upload', progress:'Upload in progress', history:'Upload history', security:'Security & compliance' };
+const subs = { new:'Direct-to-S3 via presigned multipart', progress:'data-export-2026.zip · 70% complete', history:'All uploads for your account', security:'Controls, checklist & cleanup status' };
+
+function showScreen(id) {
+  screens.forEach(s => {
+    document.getElementById('screen-' + s).classList.remove('active');
+    document.getElementById('nav-' + s).classList.remove('active');
+  });
+  document.getElementById('screen-' + id).classList.add('active');
+  document.getElementById('nav-' + id).classList.add('active');
+  document.getElementById('screen-title').textContent = titles[id];
+  document.getElementById('screen-sub').textContent = subs[id];
+}
+
+function updatePartCount(mb) {
+  const parts = Math.ceil(1024 / parseInt(mb));
+  document.getElementById('part-count-val').textContent = '~' + parts + ' parts for 1 GB';
+}
+</script>

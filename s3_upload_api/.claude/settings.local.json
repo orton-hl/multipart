@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(AWS_ROLE_ARN=test S3_BUCKET=test JWT_SECRET=test .venv/bin/python:*)"
+    ]
+  }
+}
