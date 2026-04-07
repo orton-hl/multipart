@@ -1,0 +1,30 @@
+# Copy this file to terraform.tfvars and fill in your values
+
+aws_region    = "us-east-1"
+environment   = "dev"
+project_name  = "s3-to-local"
+
+# S3 bucket that will receive files
+source_bucket_name = "my-source-files-bucket"
+
+# Only trigger on files uploaded to this prefix (leave empty for all)
+s3_prefix_filter = "incoming/"
+
+# Only trigger on files with this suffix (leave empty for all)
+s3_suffix_filter = ""
+
+# --- Your Local PC SFTP Server ---
+# Your public IP or domain (use ngrok/tailscale if behind NAT)
+local_sftp_host = "your-public-ip-or-domain.example.com"
+local_sftp_port = 22
+local_sftp_user = "your-sftp-username"
+
+# Path to the SSH private key that authenticates to your local SFTP server
+local_sftp_private_key = "~/.ssh/transfer_family_key"
+
+# Directory on your local PC where files land
+local_sftp_destination_path = "/home/youruser/incoming"
+
+# Optional: deploy Lambda inside a VPC
+create_vpc = false
+vpc_cidr   = "10.0.0.0/16"
